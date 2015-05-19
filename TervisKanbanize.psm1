@@ -39,7 +39,40 @@ function Move-CompletedCardsThatHaveAllInformationToArchive {
     foreach ($Card in $CardsThatCanBeArchived){
         Move-KanbanizeTask -BoardID $Card.BoardID -TaskID $Card.TaskID -Column "Archive"
     }
+
+    $CardsThatCantBeArchived = $Cards |
+    where columnpath -Match "Done" |
+    where taskid -NotIn $($CardsThatCanBeArchived.taskid)
 }
+
+function Move-CardsInDoneListThatHaveStillHaveSomethingIncomplete {
+    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
+    $HelpDeskBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Technician Process" | select -ExpandProperty ID
+    $TriageBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Triage Process" | select -ExpandProperty ID
+
+    $TechnicianProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskBoardID
+    $TechnicianProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskBoardID
+    
+    $TriageProcessCards = Get-KanbanizeAllTasks -BoardID $TriageBoardID
+    $TriageProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $TriageBoardID
+
+    $Cards = $TechnicianProcessCards + $TriageProcessCards
+
+    $Cards | Mixin-TervisKanbanizeCardProperties
+    
+    $CardsInDoneList = $Cards |
+    where columnpath -Match "Done"
+    
+    $OpenTrackITWorkOrders = get-TrackITWorkOrders
+
+    $CardsThatAreOpenInTrackITButDoneInKanbanize = Compare-Object -ReferenceObject $OpenTrackITWorkOrders.woid -DifferenceObject $Cardsindonelist.trackitid -PassThru -IncludeEqual |
+    where sideindicator -EQ "=="
+
+    foreach ($Card in $CardsThatCanBeArchived){
+        Move-KanbanizeTask -BoardID $Card.BoardID -TaskID $Card.TaskID -Column "Archive"
+    }
+}
+
 
 function Import-UnassignedTrackItsToKanbanize {
     Import-Module Kanbanizepowershell -Force
@@ -86,4 +119,202 @@ Select Wo_num, task, request_fullname, request_email
         }
     }
 
+}
+
+$CurrentWorkInstructions = @"
+Printer toner swap out
+Printer waste toner box swap out
+Termination
+Whitelist email address
+Internet explorer browser settings reset
+Distribution list member add
+Distribution list member remove
+Distribution list create
+Monitor swap or add
+Layer 1 equipment get
+Layer 1 equipment install
+Personal phone email install and TervisWifi install
+Software chrome install
+Software paint.net install
+Uninstall software
+iPhone Swap
+Iphone get, initialize, install
+iPhone work email access grant
+Capex new
+Active directory user photo update
+EBS user responisbilities update
+Software oracle sql developer install
+Mailbox access grant
+Termination IT
+EBS rapid planning user responsibilities update
+Active directory user password reset
+Active directory user phone number update
+CRM password reset
+"@
+
+function Invoke-PrioritizeConfirmTypeAndMoveCardTechnicainBoard {
+    [CmdletBinding()]
+    param()
+
+    $VerbosePreference = "continue"
+
+    Import-Module KanbanizePowerShell -Force
+    Import-module TrackItWebAPIPowerShell -Force
+
+    Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
+
+    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
+    $HelpDeskBoardID = $KanbanizeBoards.projects.boards | 
+    where name -EQ "Help Desk Technician Process" | 
+    select -ExpandProperty ID
+    
+    $Types = Get-KanbanizeFullBoardSettings -BoardID $HelpDeskBoardID | select -ExpandProperty types
+
+    $TechnicianProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskBoardID
+    $TechnicianProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskBoardID
+
+    $Cards = $TechnicianProcessCards
+    $Cards | Add-Member -MemberType ScriptProperty -Name TrackITID -Value { [int]$($this.customfields | Where name -eq "trackitid" | select -ExpandProperty value) }
+    $Cards | Add-Member -MemberType ScriptProperty -Name PositionInt -Value { [int]$this.position }
+    $Cards | Add-Member -MemberType ScriptProperty -Name PriorityInt -Value { 
+        switch($this.color) {
+            "#cc1a33" {1} #Red for priority 1
+            "#f37325" {2} #Orange for priority 2
+            "#77569b" {3} #Purple for priority 3
+            "#067db7" {4} #Blue for priority 4
+        }
+    }
+
+    $WaitingToBePrioritized = $Cards |
+    where columnpath -Match "Waiting to be prioritized" |
+    sort positionint
+
+    $global:CardsThatNeedToBeCreatedTypes = @()
+    $global:ToBeCreatedTypes = @()
+
+    foreach ($Card in $WaitingToBePrioritized) {
+        $WorkOrder = Get-TrackITWorkOrder -WorkOrderNumber $Card.TrackITID
+        $Task = Get-KanbanizeTaskDetails -BoardID $Card.BoardID -TaskID $Card.TaskID -History yes -Event comment
+
+        $Card | Select TaskID, Title, Type, deadline, PriorityInt| FL
+    
+        $WorkOrder.data | Add-Member -MemberType ScriptProperty -Name AllNotes -Value {
+            $This.notes | GM | where membertype -EQ noteproperty | % { $This.notes.$($_.name) }
+        }
+        $WorkOrder.data.AllNotes | Add-Member -MemberType ScriptProperty -Name createddateDate -Value { get-date $this.createddate }
+    
+        $WorkOrder.data.AllNotes | 
+        sort createddateDate -Descending |
+        select createddateDate, CreatedBy, FullText |
+        FL
+
+        $Task.HistoryDetails |
+        where historyevent -ne "Comment deleted" |
+        Select EntryDate, Author, Details |
+        FL
+
+        read-host "Hit enter once you have reviewed the details about this request"
+
+        if($Card.Type -ne "None") {
+            $TypeCorrect = get-MultipleChoiceQuestionAnswered -Question "Type correct?" -Choices "Yes","No" | ConvertTo-Boolean               
+        }
+        
+        if( !$TypeCorrect -or ($Card.Type -eq "None") )
+        {        
+            $SelectedType = $Types | Out-GridView -PassThru
+    
+            if ($SelectedType -ne $null) {
+                Edit-KanbanizeTask -TaskID $Card.taskid -BoardID $Card.BoardID -Type $SelectedType        
+            } else {
+                $ToBeCreatedSelectedType = $global:ToBeCreatedTypes | Out-GridView -PassThru
+                if($ToBeCreatedSelectedType -ne $null) {
+                    $global:CardsThatNeedToBeCreatedTypes += [pscustomobject]@{taskid=$Card.taskid; type=$ToBeCreatedSelectedType;BoardID=$Card.BoardID}
+                } else {
+                    $ToBeCreatedSelectedType = read-host "Enter the new type you want to use for this card"
+                    $global:CardsThatNeedToBeCreatedTypes += [pscustomobject]@{taskid=$Card.taskid; type=$ToBeCreatedSelectedType;BoardID=$Card.BoardID}
+                    $global:ToBeCreatedTypes += $ToBeCreatedSelectedType
+                }
+            }
+        }
+
+        if($card.color -notin ("#cc1a33","#f37325","#77569b","#067db7")) {
+            $Priority = get-MultipleChoiceQuestionAnswered -Question "What priority level should this request have?" -Choices 1,2,3,4
+            $color = switch($Priority) {
+                1 { "cc1a33" } #Red for priority 1
+                2 { "f37325" } #Orange for priority 2
+                3 { "77569b" } #Yello for priority 3
+                4 { "067db7" } #Blue for priority 4
+            }
+            Write-Verbose "Color: $color"
+            Edit-KanbanizeTask -BoardID $HelpDeskBoardID -TaskID $Task.taskid -Color $color
+        }
+
+        $WorkInstructionsForThisRequest = get-MultipleChoiceQuestionAnswered -Question "Are there work instructions to complete this request?" -Choices "Yes","No" | 
+        ConvertTo-Boolean
+        
+        if($WorkInstructionsForThisRequest) {
+            $DestinationColumn = "Requested.Ready to be worked on"
+        } else {
+            $DestinationColumn = "Requested.Ready to be worked on technician"
+        }
+        Write-Verbose "Destination column: $DestinationColumn"
+
+        $NeedToBeEscalated = get-MultipleChoiceQuestionAnswered -Question "Does this need to be escalated?" -Choices "Yes","No" | 
+        ConvertTo-Boolean
+        
+        if($NeedToBeEscalated) {
+            $DestinationLane = "Unplanned Work"
+            Move-KanbanizeTask -BoardID $HelpDeskBoardID -TaskID $Task.taskid -Lane $DestinationLane -Column $DestinationColumn
+
+        } else { 
+            $DestinationLane = "Planned Work"
+
+            $CardsThatNeedToBeSorted = $Cards | 
+            where {$_.columnpath -eq $DestinationColumn -and $_.lanename -eq "Planned Work"} |
+            sort positionint
+
+            $SortedCards = $CardsThatNeedToBeSorted |
+            sort priorityint, trackitid
+            $PositionOfTheLastCardInTheSamePriortiyLevel = $SortedCards |
+                where priorityint -EQ $(if($Card.PriorityInt){$Card.PriorityInt}else{$Priority}) |
+                select -Last 1 -ExpandProperty PositionInt
+            
+            $RightPosition = if($PositionOfTheLastCardInTheSamePriortiyLevel) {
+                $PositionOfTheLastCardInTheSamePriortiyLevel + 1
+            } else { 0 }
+            Write-Verbose "Rightposition in column: $RightPosition"
+            
+            Move-KanbanizeTask -BoardID $HelpDeskBoardID -TaskID $Task.taskid -Lane $DestinationLane -Column $DestinationColumn -Position $RightPosition
+        }
+
+        Write-Verbose "DestinationLane: $DestinationLane"
+    }
+
+    $global:ToBeCreatedTypes
+    Read-Host "Create types in Kanbanize for all the types listed above and then hit enter"
+
+    $global:CardsThatNeedToBeCreatedTypes
+    $global:CardsThatNeedToBeCreatedTypes | % {
+        Edit-KanbanizeTask -TaskID $_.taskid -BoardID $_.BoardID -Type $_.type
+    }
+
+}
+
+
+function ConvertTo-Boolean {
+    param(
+        [Parameter(Mandatory=$false,ValueFromPipeline=$true)][string] $value
+    )
+    switch ($value) {
+        "y" { return $true; }
+        "yes" { return $true; }
+        "true" { return $true; }
+        "t" { return $true; }
+        1 { return $true; }
+        "n" { return $false; }
+        "no" { return $false; }
+        "false" { return $false; }
+        "f" { return $false; } 
+        0 { return $false; }
+    }
 }

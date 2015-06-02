@@ -15,6 +15,7 @@ function Move-CompletedCardsThatHaveAllInformationToArchive {
     $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
     $HelpDeskBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Technician Process" | select -ExpandProperty ID
     $TriageBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Triage Process" | select -ExpandProperty ID
+    $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Technician Process" | select -ExpandProperty ID
 
     $TechnicianProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskBoardID
     $TechnicianProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskBoardID
@@ -164,16 +165,21 @@ function Invoke-PrioritizeConfirmTypeAndMoveCardTechnicainBoard {
     Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
 
     $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
-    $HelpDeskBoardID = $KanbanizeBoards.projects.boards | 
-    where name -EQ "Help Desk Technician Process" | 
+    $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | 
+    where name -EQ "Help Desk Process" | 
     select -ExpandProperty ID
     
-    $Types = Get-KanbanizeFullBoardSettings -BoardID $HelpDeskBoardID | select -ExpandProperty types
+    $HelpDeskTechnicianProcessBoardID = $KanbanizeBoards.projects.boards | 
+    where name -EQ "Help Desk Technician Process" | 
+    select -ExpandProperty ID
 
-    $TechnicianProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskBoardID
-    $TechnicianProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskBoardID
 
-    $Cards = $TechnicianProcessCards
+    $Types = Get-KanbanizeFullBoardSettings -BoardID $HelpDeskProcessBoardID | select -ExpandProperty types
+
+    $HelpDeskProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskProcessBoardID
+    $HelpDeskProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskProcessBoardID
+
+    $Cards = $HelpDeskProcessCards
     $Cards | Add-Member -MemberType ScriptProperty -Name TrackITID -Value { [int]$($this.customfields | Where name -eq "trackitid" | select -ExpandProperty value) }
     $Cards | Add-Member -MemberType ScriptProperty -Name PositionInt -Value { [int]$this.position }
     $Cards | Add-Member -MemberType ScriptProperty -Name PriorityInt -Value { 
@@ -246,29 +252,30 @@ function Invoke-PrioritizeConfirmTypeAndMoveCardTechnicainBoard {
                 4 { "067db7" } #Blue for priority 4
             }
             Write-Verbose "Color: $color"
-            Edit-KanbanizeTask -BoardID $HelpDeskBoardID -TaskID $Task.taskid -Color $color
+            Edit-KanbanizeTask -BoardID $Card.BoardID -TaskID $Task.taskid -Color $color
         }
 
         $WorkInstructionsForThisRequest = get-MultipleChoiceQuestionAnswered -Question "Are there work instructions to complete this request?" -Choices "Yes","No" | 
         ConvertTo-Boolean
         
         if($WorkInstructionsForThisRequest) {
-            $DestinationColumn = "Requested.Ready to be worked on"
+            $DestinationBoardID = $HelpDeskProcessBoardID
         } else {
-            $DestinationColumn = "Requested.Ready to be worked on technician"
+            $DestinationBoardID = $HelpDeskTechnicianProcessBoardID
         }
-        Write-Verbose "Destination column: $DestinationColumn"
+        Write-Verbose "Destination column: $DestinationBoardID"
 
         $NeedToBeEscalated = get-MultipleChoiceQuestionAnswered -Question "Does this need to be escalated?" -Choices "Yes","No" | 
         ConvertTo-Boolean
         
         if($NeedToBeEscalated) {
             $DestinationLane = "Unplanned Work"
-            Move-KanbanizeTask -BoardID $HelpDeskBoardID -TaskID $Task.taskid -Lane $DestinationLane -Column $DestinationColumn
-
+            Move-KanbanizeTask -BoardID $DestinationBoardID -TaskID $Task.taskid -Lane $DestinationLane -Column "Requested.Ready to be worked on"
         } else { 
             $DestinationLane = "Planned Work"
+            Move-KanbanizeTask -BoardID $DestinationBoardID -TaskID $Task.taskid -Lane $DestinationLane -Column "Requested.Ready to be worked on"
 
+            <#
             $CardsThatNeedToBeSorted = $Cards | 
             where {$_.columnpath -eq $DestinationColumn -and $_.lanename -eq "Planned Work"} |
             sort positionint
@@ -284,7 +291,8 @@ function Invoke-PrioritizeConfirmTypeAndMoveCardTechnicainBoard {
             } else { 0 }
             Write-Verbose "Rightposition in column: $RightPosition"
             
-            Move-KanbanizeTask -BoardID $HelpDeskBoardID -TaskID $Task.taskid -Lane $DestinationLane -Column $DestinationColumn -Position $RightPosition
+            Move-KanbanizeTask -BoardID $DestinationBoardID -TaskID $Task.taskid -Lane $DestinationLane -Column $DestinationColumn -Position $RightPosition
+            #>
         }
 
         Write-Verbose "DestinationLane: $DestinationLane"

@@ -13,17 +13,16 @@
 
 function Move-CompletedCardsThatHaveAllInformationToArchive {
     $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
-    $HelpDeskBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Technician Process" | select -ExpandProperty ID
-    $TriageBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Triage Process" | select -ExpandProperty ID
-    $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Technician Process" | select -ExpandProperty ID
+    $HelpDeskTechnicianBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Technician Process" | select -ExpandProperty ID
+    $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Process" | select -ExpandProperty ID
 
-    $TechnicianProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskBoardID
-    $TechnicianProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskBoardID
+    $TechnicianProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskTechnicianBoardID
+    $TechnicianProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskTechnicianBoardID
     
-    $TriageProcessCards = Get-KanbanizeAllTasks -BoardID $TriageBoardID
-    $TriageProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $TriageBoardID
+    $HelpDeskProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskProcessBoardID
+    $HelpDeskProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskProcessBoardID
 
-    $Cards = $TechnicianProcessCards + $TriageProcessCards
+    $Cards = $TechnicianProcessCards + $HelpDeskProcessCards
 
     $Cards | Mixin-TervisKanbanizeCardProperties
 
@@ -37,13 +36,15 @@ function Move-CompletedCardsThatHaveAllInformationToArchive {
     where TrackITID |
     where TrackITID -NotIn $($OpenTrackITWorkOrders.woid)
 
-    foreach ($Card in $CardsThatCanBeArchived){
+    foreach ($Card in $CardsThatCanBeArchived) {
         Move-KanbanizeTask -BoardID $Card.BoardID -TaskID $Card.TaskID -Column "Archive"
     }
 
+    <#
     $CardsThatCantBeArchived = $Cards |
     where columnpath -Match "Done" |
     where taskid -NotIn $($CardsThatCanBeArchived.taskid)
+    #>
 }
 
 function Move-CardsInDoneListThatHaveStillHaveSomethingIncomplete {

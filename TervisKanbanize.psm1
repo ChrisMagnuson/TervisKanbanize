@@ -1,5 +1,6 @@
 ﻿filter Mixin-TervisKanbanizeCardProperties {
     $_ | Add-Member -MemberType ScriptProperty -Name TrackITID -Value { [int]$($this.customfields | Where name -eq "trackitid" | select -ExpandProperty value) }
+    $_ | Add-Member -MemberType ScriptProperty -Name ScheduledDate -Value { $($this.customfields | Where name -eq "Scheduled Date" | select -ExpandProperty value) }
     $_ | Add-Member -MemberType ScriptProperty -Name PositionInt -Value { [int]$this.position }
     $_ | Add-Member -MemberType ScriptProperty -Name PriorityInt -Value { 
         switch($this.color) {
@@ -45,6 +46,44 @@ function Move-CompletedCardsThatHaveAllInformationToArchive {
     where columnpath -Match "Done" |
     where taskid -NotIn $($CardsThatCanBeArchived.taskid)
     #>
+}
+
+function Get-KanbanizeTervisHelpDeskCards {
+    param(
+        [switch]$HelpDeskProcess,
+        [switch]$HelpDeskTechnicianProcess,
+        [switch]$HelpDeskTriageProcess
+    )
+    
+    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
+
+    $BoardIDs = $KanbanizeBoards.projects.boards | 
+    where {
+        ($_.name -eq "Help Desk Technician Process" -and $HelpDeskTechnicianProcess) -or
+        ($_.name -eq "Help Desk Process" -and $HelpDeskProcess) -or
+        ($_.name -eq "Help Desk Triage Process" -and $HelpDeskTriageProcess)
+    } | 
+    select -ExpandProperty ID
+    
+    $Cards = @()
+
+    Foreach ($BoardID in $BoardIDs) {
+        $CardsFromBoard = Get-KanbanizeAllTasks -BoardID $BoardID
+        $CardsFromBoard | Add-Member -MemberType NoteProperty -Name BoardID -Value $BoardID
+        $Cards += $CardsFromBoard
+    }
+
+    $Cards | Mixin-TervisKanbanizeCardProperties
+    $Cards
+}
+
+function Move-CardsInScheduledDateThatDontHaveScheduledDateSet {
+    Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess | 
+    where columnpath -Match "Waiting for Scheduled date" | 
+    where scheduleddate -eq $null |
+    % {
+        Move-KanbanizeTask -BoardID $_.BoardID -TaskID $_.TaskID -Column "In Progress.Waiting to be worked on"
+    }
 }
 
 function Move-CardsInDoneListThatHaveStillHaveSomethingIncomplete {

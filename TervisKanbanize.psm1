@@ -58,7 +58,7 @@ function Move-CompletedCardsThatHaveAllInformationToArchive {
 }
 
 function Move-CardsInScheduledDateThatDontHaveScheduledDateSet {
-    $CardsInScheduledDateThatDontHaveScheduledDateSet = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess | 
+    $CardsInScheduledDateThatDontHaveScheduledDateSet = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess -HelpDeskTriageProcess | 
     where columnpath -Match "Waiting for Scheduled date" | 
     where scheduleddate -eq $null
     

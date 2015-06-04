@@ -12,42 +12,6 @@
     }
 }
 
-function Move-CompletedCardsThatHaveAllInformationToArchive {
-    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
-    $HelpDeskTechnicianBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Technician Process" | select -ExpandProperty ID
-    $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Process" | select -ExpandProperty ID
-
-    $TechnicianProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskTechnicianBoardID
-    $TechnicianProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskTechnicianBoardID
-    
-    $HelpDeskProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskProcessBoardID
-    $HelpDeskProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskProcessBoardID
-
-    $Cards = $TechnicianProcessCards + $HelpDeskProcessCards
-
-    $Cards | Mixin-TervisKanbanizeCardProperties
-
-    $OpenTrackITWorkOrders = get-TrackITWorkOrders
-
-    $CardsThatCanBeArchived = $Cards | 
-    where columnpath -Match "Done" |
-    where type -ne "None" |
-    where assignee -NE "None" |
-    where color -in ("#cc1a33","#f37325","#77569b","#067db7") |
-    where TrackITID |
-    where TrackITID -NotIn $($OpenTrackITWorkOrders.woid)
-
-    foreach ($Card in $CardsThatCanBeArchived) {
-        Move-KanbanizeTask -BoardID $Card.BoardID -TaskID $Card.TaskID -Column "Archive"
-    }
-
-    <#
-    $CardsThatCantBeArchived = $Cards |
-    where columnpath -Match "Done" |
-    where taskid -NotIn $($CardsThatCanBeArchived.taskid)
-    #>
-}
-
 function Get-KanbanizeTervisHelpDeskCards {
     param(
         [switch]$HelpDeskProcess,
@@ -77,29 +41,34 @@ function Get-KanbanizeTervisHelpDeskCards {
     $Cards
 }
 
+function Move-CompletedCardsThatHaveAllInformationToArchive {
+    $OpenTrackITWorkOrders = get-TrackITWorkOrders
+    
+    $CardsThatCanBeArchived = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess | 
+    where columnpath -Match "Done" |
+    where type -ne "None" |
+    where assignee -NE "None" |
+    where color -in ("#cc1a33","#f37325","#77569b","#067db7") |
+    where TrackITID |
+    where TrackITID -NotIn $($OpenTrackITWorkOrders.woid)
+
+    foreach ($Card in $CardsThatCanBeArchived) {
+        Move-KanbanizeTask -BoardID $Card.BoardID -TaskID $Card.TaskID -Column "Archive"
+    }
+}
+
 function Move-CardsInScheduledDateThatDontHaveScheduledDateSet {
-    Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess | 
+    $CardsInScheduledDateThatDontHaveScheduledDateSet = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess | 
     where columnpath -Match "Waiting for Scheduled date" | 
-    where scheduleddate -eq $null |
-    % {
-        Move-KanbanizeTask -BoardID $_.BoardID -TaskID $_.TaskID -Column "In Progress.Waiting to be worked on"
+    where scheduleddate -eq $null
+    
+    foreach ($Card in $CardsInScheduledDateThatDontHaveScheduledDateSet) {
+        Move-KanbanizeTask -BoardID $Card.BoardID -TaskID $Card.TaskID -Column "In Progress.Waiting to be worked on"
     }
 }
 
 function Move-CardsInDoneListThatHaveStillHaveSomethingIncomplete {
-    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
-    $HelpDeskBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Technician Process" | select -ExpandProperty ID
-    $TriageBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Triage Process" | select -ExpandProperty ID
-
-    $TechnicianProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskBoardID
-    $TechnicianProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskBoardID
-    
-    $TriageProcessCards = Get-KanbanizeAllTasks -BoardID $TriageBoardID
-    $TriageProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $TriageBoardID
-
-    $Cards = $TechnicianProcessCards + $TriageProcessCards
-
-    $Cards | Mixin-TervisKanbanizeCardProperties
+    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess
     
     $CardsInDoneList = $Cards |
     where columnpath -Match "Done"
@@ -116,22 +85,7 @@ function Move-CardsInDoneListThatHaveStillHaveSomethingIncomplete {
 
 
 function Import-UnassignedTrackItsToKanbanize {
-    Import-Module Kanbanizepowershell -Force
-    Import-Module TrackITWebAPIPowerShell -Force
-
-    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
-    $HelpDeskBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Technician Process" | select -ExpandProperty ID
-    $TriageBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Triage Process" | select -ExpandProperty ID
- 
-    $TechnicianProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskBoardID
-    $TechnicianProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskBoardID
-    
-    $TriageProcessCards = Get-KanbanizeAllTasks -BoardID $TriageBoardID
-    $TriageProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $TriageBoardID
-
-    $Cards = $TechnicianProcessCards + $TriageProcessCards
-
-    $Cards | Mixin-TervisKanbanizeCardProperties
+    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess -HelpDeskTriageProcess
 
 $QueryToGetUnassignedWorkOrders = @"
 Select Wo_num, task, request_fullname, request_email
@@ -159,7 +113,6 @@ Select Wo_num, task, request_fullname, request_email
             Send-MailMessage -From HelpDeskBot@tervis.com -to HelpDeskDispatch@tervis.com -subject $ErrorMessage -SmtpServer cudaspam.tervis.com -Body $_.Exception|format-list -force
         }
     }
-
 }
 
 $CurrentWorkInstructions = @"
@@ -208,28 +161,10 @@ function Invoke-PrioritizeConfirmTypeAndMoveCardTechnicainBoard {
     $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | 
     where name -EQ "Help Desk Process" | 
     select -ExpandProperty ID
-    
-    $HelpDeskTechnicianProcessBoardID = $KanbanizeBoards.projects.boards | 
-    where name -EQ "Help Desk Technician Process" | 
-    select -ExpandProperty ID
-
 
     $Types = Get-KanbanizeFullBoardSettings -BoardID $HelpDeskProcessBoardID | select -ExpandProperty types
 
-    $HelpDeskProcessCards = Get-KanbanizeAllTasks -BoardID $HelpDeskProcessBoardID
-    $HelpDeskProcessCards | Add-Member -MemberType NoteProperty -Name BoardID -Value $HelpDeskProcessBoardID
-
-    $Cards = $HelpDeskProcessCards
-    $Cards | Add-Member -MemberType ScriptProperty -Name TrackITID -Value { [int]$($this.customfields | Where name -eq "trackitid" | select -ExpandProperty value) }
-    $Cards | Add-Member -MemberType ScriptProperty -Name PositionInt -Value { [int]$this.position }
-    $Cards | Add-Member -MemberType ScriptProperty -Name PriorityInt -Value { 
-        switch($this.color) {
-            "#cc1a33" {1} #Red for priority 1
-            "#f37325" {2} #Orange for priority 2
-            "#77569b" {3} #Purple for priority 3
-            "#067db7" {4} #Blue for priority 4
-        }
-    }
+    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess
 
     $WaitingToBePrioritized = $Cards |
     where columnpath -Match "Waiting to be prioritized" |

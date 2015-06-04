@@ -85,6 +85,8 @@ function Move-CardsInDoneListThatHaveStillHaveSomethingIncomplete {
 
 
 function Import-UnassignedTrackItsToKanbanize {
+    Import-Module TrackITWebAPIPowerShell -Force
+
     $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess -HelpDeskTriageProcess
 
 $QueryToGetUnassignedWorkOrders = @"

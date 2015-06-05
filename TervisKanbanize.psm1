@@ -83,7 +83,6 @@ function Move-CardsInDoneListThatHaveStillHaveSomethingIncomplete {
     }
 }
 
-
 function Import-UnassignedTrackItsToKanbanize {
     Import-Module TrackITWebAPIPowerShell -Force
 
@@ -117,28 +116,26 @@ Select Wo_num, task, request_fullname, request_email
     }
 }
 
-$CurrentWorkInstructions = @"
-Printer toner swap out
-Printer waste toner box swap out
+$ApprovedWorkInstructionsInEvernote = @"
+Printer toner swap
+Printer waste toner box swap
 Termination
 Whitelist email address
 Internet explorer browser settings reset
-Distribution list member add
-Distribution list member remove
-Distribution list create
+Distribution group member add
+Distribution group member remove
+Distribution group create
 Monitor swap or add
 Layer 1 equipment get
-Layer 1 equipment install
-Personal phone email install and TervisWifi install
+Personal phone work email install and TervisWifi install
 Software chrome install
 Software paint.net install
 Uninstall software
 iPhone Swap
-Iphone get, initialize, install
+iPhone get initialize and install
 iPhone work email access grant
-Capex new
 Active directory user photo update
-EBS user responisbilities update
+EBS user responsibilities update
 Software oracle sql developer install
 Mailbox access grant
 Termination IT
@@ -146,7 +143,27 @@ EBS rapid planning user responsibilities update
 Active directory user password reset
 Active directory user phone number update
 CRM password reset
-"@
+Tradeshow iPad initialize
+Computer rename
+Computer windows add to domain
+Mailbox New
+Remote application navision install
+Employee or temp hire new
+"@ -split "`r`n"
+
+function compare-WorkInstructionTypesInEvernoteWithTypesInKanbanize {
+    Compare-Object -ReferenceObject $(get-TervisKanbanizeTypes) -DifferenceObject $ApprovedWorkInstructionsInEvernote -IncludeEqual
+}
+
+function get-TervisKanbanizeTypes {
+    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
+    $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | 
+    where name -EQ "Help Desk Process" | 
+    select -ExpandProperty ID
+
+    $Types = Get-KanbanizeFullBoardSettings -BoardID $HelpDeskProcessBoardID | select -ExpandProperty types
+    $Types
+}
 
 function Invoke-PrioritizeConfirmTypeAndMoveCardTechnicainBoard {
     [CmdletBinding()]
@@ -160,15 +177,13 @@ function Invoke-PrioritizeConfirmTypeAndMoveCardTechnicainBoard {
     Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
 
     $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
-    $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | 
-    where name -EQ "Help Desk Process" | 
-    select -ExpandProperty ID
 
-    $Types = Get-KanbanizeFullBoardSettings -BoardID $HelpDeskProcessBoardID | select -ExpandProperty types
+    $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Process" | select -ExpandProperty ID
+    $HelpDeskTechnicianProcessBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Technician Process" | select -ExpandProperty ID
 
-    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess
+    $Types = get-TervisKanbanizeTypes
 
-    $WaitingToBePrioritized = $Cards |
+    $WaitingToBePrioritized = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess |
     where columnpath -Match "Waiting to be prioritized" |
     sort positionint
 
@@ -221,7 +236,7 @@ function Invoke-PrioritizeConfirmTypeAndMoveCardTechnicainBoard {
         }
 
         if($card.color -notin ("#cc1a33","#f37325","#77569b","#067db7")) {
-            $Priority = get-MultipleChoiceQuestionAnswered -Question "What priority level should this request have?" -Choices 1,2,3,4
+            $Priority = get-MultipleChoiceQuestionAnswered -Question "What priority level should this request have?" -Choices 1,2,3,4 -DefaultChoice 3
             $color = switch($Priority) {
                 1 { "cc1a33" } #Red for priority 1
                 2 { "f37325" } #Orange for priority 2
@@ -232,8 +247,7 @@ function Invoke-PrioritizeConfirmTypeAndMoveCardTechnicainBoard {
             Edit-KanbanizeTask -BoardID $Card.BoardID -TaskID $Task.taskid -Color $color
         }
 
-        $WorkInstructionsForThisRequest = get-MultipleChoiceQuestionAnswered -Question "Are there work instructions to complete this request?" -Choices "Yes","No" | 
-        ConvertTo-Boolean
+        $WorkInstructionsForThisRequest = $card.Type -in $ApprovedWorkInstructionsInEvernote
         
         if($WorkInstructionsForThisRequest) {
             $DestinationBoardID = $HelpDeskProcessBoardID
@@ -284,7 +298,6 @@ function Invoke-PrioritizeConfirmTypeAndMoveCardTechnicainBoard {
     }
 
 }
-
 
 function ConvertTo-Boolean {
     param(

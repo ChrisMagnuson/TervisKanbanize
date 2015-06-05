@@ -165,7 +165,7 @@ function get-TervisKanbanizeTypes {
     $Types
 }
 
-function Invoke-PrioritizeConfirmTypeAndMoveCardTechnicainBoard {
+function Invoke-PrioritizeConfirmTypeAndMoveCard {
     [CmdletBinding()]
     param()
 

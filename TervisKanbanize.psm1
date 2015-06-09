@@ -104,13 +104,46 @@ Select Wo_num, task, request_fullname, request_email
     foreach ($UnassignedWorkOrder in $UnassignedWorkOrders ) {
         $CardName = "" + $UnassignedWorkOrder.Wo_Num + " -  " + $UnassignedWorkOrder.Task    
         try {
-            #throw "Testing blowing up the automated track it to kanbnaize importer"
             if($UnassignedWorkOrder.Wo_Num -in $($Cards.TrackITID)) {throw "There is already a card for this Track IT"}
 
             $Response = New-KanbanizeTask -BoardID $TriageProcessBoardID -Title $CardName -CustomFields @{"trackitid"=$UnassignedWorkOrder.Wo_Num;"trackiturl"="http://trackit/TTHelpdesk/Application/Main?tabs=w$($UnassignedWorkOrder.Wo_Num)"} -Column $TriageProcessStartingColumn -Lane "Planned Work"
             Edit-TrackITWorkOrder -WorkOrderNumber $UnassignedWorkOrder.Wo_Num -AssignedTechnician "Backlog" | Out-Null
         } catch {            
-            $ErrorMessage = "Error importing: " + $CardName
+            $ErrorMessage = "Error running Import-UnassignedTrackItsToKanbanize: " + $CardName
+            Send-MailMessage -From HelpDeskBot@tervis.com -to HelpDeskDispatch@tervis.com -subject $ErrorMessage -SmtpServer cudaspam.tervis.com -Body $_.Exception|format-list -force
+        }
+    }
+}
+
+function Import-TrackItToKanbanize {
+    param (
+        $TrackITID
+    )
+    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess -HelpDeskTriageProcess
+    
+$QueryToGetUnassignedWorkOrders = @"
+Select Wo_num, task
+  from [TRACKIT9_DATA].[dbo].[vTASKS_BROWSE]
+  Where RESPONS IS Null AND
+  WorkOrderStatusName != 'Closed' AND
+  Wo_num = $TrackITID
+"@
+    Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
+
+    $TriageProcessBoardID = 29
+    $TriageProcessStartingColumn = "Requested"
+
+    $UnassignedWorkOrders = Invoke-SQL -dataSource sql -database TRACKIT9_DATA -sqlCommand $QueryToGetUnassignedWorkOrders
+
+    foreach ($UnassignedWorkOrder in $UnassignedWorkOrders ) {
+        $CardName = "" + $UnassignedWorkOrder.Wo_Num + " -  " + $UnassignedWorkOrder.Task    
+        try {
+            if($UnassignedWorkOrder.Wo_Num -in $($Cards.TrackITID)) {throw "There is already a card for this Track IT"}
+
+            $Response = New-KanbanizeTask -BoardID $TriageProcessBoardID -Title $CardName -CustomFields @{"trackitid"=$UnassignedWorkOrder.Wo_Num;"trackiturl"="http://trackit/TTHelpdesk/Application/Main?tabs=w$($UnassignedWorkOrder.Wo_Num)"} -Column $TriageProcessStartingColumn -Lane "Planned Work"
+            Edit-TrackITWorkOrder -WorkOrderNumber $UnassignedWorkOrder.Wo_Num -AssignedTechnician "Backlog" | Out-Null
+        } catch {            
+            $ErrorMessage = "Error running Import-TrackItToKanbanize: " + $CardName
             Send-MailMessage -From HelpDeskBot@tervis.com -to HelpDeskDispatch@tervis.com -subject $ErrorMessage -SmtpServer cudaspam.tervis.com -Body $_.Exception|format-list -force
         }
     }
@@ -192,31 +225,28 @@ function get-TervisKanbanizeTypes {
 
 function Get-TervisWorkOrderDetails {
     param(
-        $Cards
+        $Card
     )
-    foreach ($Card in $WaitingToBePrioritized) {
-        $WorkOrder = Get-TrackITWorkOrder -WorkOrderNumber $Card.TrackITID
-        $Task = Get-KanbanizeTaskDetails -BoardID $Card.BoardID -TaskID $Card.TaskID -History yes -Event comment
 
-        $Card | Select TaskID, Title, Type, deadline, PriorityInt| FL
-    
-        $WorkOrder.data | Add-Member -MemberType ScriptProperty -Name AllNotes -Value {
-            $This.notes | GM | where membertype -EQ noteproperty | % { $This.notes.$($_.name) }
-        }
-        $WorkOrder.data.AllNotes | Add-Member -MemberType ScriptProperty -Name createddateDate -Value { get-date $this.createddate }
-    
-        $WorkOrder.data.AllNotes | 
-        sort createddateDate -Descending |
-        select createddateDate, CreatedBy, FullText |
-        FL
+    $WorkOrder = Get-TrackITWorkOrder -WorkOrderNumber $Card.TrackITID
+    $Task = Get-KanbanizeTaskDetails -BoardID $Card.BoardID -TaskID $Card.TaskID -History yes -Event comment
 
-        $Task.HistoryDetails |
-        where historyevent -ne "Comment deleted" |
-        Select EntryDate, Author, Details |
-        FL
+    $Card | Select TaskID, Title, Type, deadline, PriorityInt| FL
+    
+    $WorkOrder.data | Add-Member -MemberType ScriptProperty -Name AllNotes -Value {
+        $This.notes | GM | where membertype -EQ noteproperty | % { $This.notes.$($_.name) }
     }
+    $WorkOrder.data.AllNotes | Add-Member -MemberType ScriptProperty -Name createddateDate -Value { get-date $this.createddate }
+    
+    $WorkOrder.data.AllNotes | 
+    sort createddateDate -Descending |
+    select createddateDate, CreatedBy, FullText |
+    FL
 
-
+    $Task.HistoryDetails |
+    where historyevent -ne "Comment deleted" |
+    Select EntryDate, Author, Details |
+    FL
 }
 
 function Invoke-PrioritizeConfirmTypeAndMoveCard {
@@ -371,23 +401,25 @@ function ConvertTo-Boolean {
     }
 }
 
-function Add-RequestorMailtoLinkToCards {
+function Get-RequestorMailtoLinkForCard {
     param(
-        [Parameter(Mandatory=$true)]$Cards
+        [Parameter(Mandatory=$true)]$Card
     )
     Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
 
-    Foreach ($Card in $Cards) {
-        $RequestorEmailAddress = Get-TrackITWorkOrderDetails -WorkOrderNumber $Card.TrackITID | 
-        select -ExpandProperty Request_Email
+    $RequestorEmailAddress = Get-TrackITWorkOrderDetails -WorkOrderNumber $Card.TrackITID | 
+    select -ExpandProperty Request_Email
 
-        $MailToURI = New-MailToURL -To "$RequestorEmailAddress,tervis_notifications@tervis.com" -Subject $Card.Title + "{$Card.BoardID}{$Card.TaskID}"
+    $MailToURI = New-MailToURI -To "$RequestorEmailAddress,tervis_notifications@tervis.com" -Subject $Card.Title + "{$Card.BoardID}{$Card.TaskID}"
 
-        $JavaScriptFunctionForMailto = 'window.location.href = "$MailToURI"'
+    <# means to open the mailto without opening a new tab
+        Kanbanize does not allow javascript: URIs in their custom fields so this does not currently work
+    $JavaScriptFunctionForMailto = 'window.location.href = "$MailToURI"'
 
-        $FinalURL = "javascript:(function()%7B$([Uri]::EscapeDataString($JavaScriptFunctionForMailto)) %7D)()"
+    $FinalURL = "javascript:(function()%7B$([Uri]::EscapeDataString($JavaScriptFunctionForMailto)) %7D)()"
+    #>
 
-    }
+    $MailToURI
 }
 
 function Close-TrackITWhenDoneInKanbanize {

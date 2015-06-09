@@ -155,6 +155,31 @@ function compare-WorkInstructionTypesInEvernoteWithTypesInKanbanize {
     Compare-Object -ReferenceObject $(get-TervisKanbanizeTypes) -DifferenceObject $ApprovedWorkInstructionsInEvernote -IncludeEqual
 }
 
+function Find-CardsOnTechnicianBoardWithWorkInstructions {
+    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskTechnicianProcess
+    $Cards |
+    #where columnpath -EQ "Requested.Ready to be worked on" |
+    where type -In $ApprovedWorkInstructionsInEvernote
+}
+
+function Find-MostImportantWorkInstructionsToCreate {
+    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskTechnicianProcess |
+    where columnpath -EQ "Requested.Ready to be worked on" |
+    where type -NotIn $ApprovedWorkInstructionsInEvernote
+    
+    $Cards|group type| sort count -Descending | select count, name
+}
+
+function Move-CardsWithWorkInstructionsToHelpDeskProcessBoard {
+    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
+    $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Process" | select -ExpandProperty ID
+    $CardsToMove = Find-CardsOnTechnicianBoardWithWorkInstructions
+    
+    foreach ($Card in $CardsToMove) {
+        Move-KanbanizeTask -BoardID $HelpDeskProcessBoardID -TaskID $Card.TaskID -Column "Requested.Ready to be worked on" -Lane "Planned Work"
+    }
+}
+
 function get-TervisKanbanizeTypes {
     $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
     $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | 
@@ -163,6 +188,35 @@ function get-TervisKanbanizeTypes {
 
     $Types = Get-KanbanizeFullBoardSettings -BoardID $HelpDeskProcessBoardID | select -ExpandProperty types
     $Types
+}
+
+function Get-TervisWorkOrderDetails {
+    param(
+        $Cards
+    )
+    foreach ($Card in $WaitingToBePrioritized) {
+        $WorkOrder = Get-TrackITWorkOrder -WorkOrderNumber $Card.TrackITID
+        $Task = Get-KanbanizeTaskDetails -BoardID $Card.BoardID -TaskID $Card.TaskID -History yes -Event comment
+
+        $Card | Select TaskID, Title, Type, deadline, PriorityInt| FL
+    
+        $WorkOrder.data | Add-Member -MemberType ScriptProperty -Name AllNotes -Value {
+            $This.notes | GM | where membertype -EQ noteproperty | % { $This.notes.$($_.name) }
+        }
+        $WorkOrder.data.AllNotes | Add-Member -MemberType ScriptProperty -Name createddateDate -Value { get-date $this.createddate }
+    
+        $WorkOrder.data.AllNotes | 
+        sort createddateDate -Descending |
+        select createddateDate, CreatedBy, FullText |
+        FL
+
+        $Task.HistoryDetails |
+        where historyevent -ne "Comment deleted" |
+        Select EntryDate, Author, Details |
+        FL
+    }
+
+
 }
 
 function Invoke-PrioritizeConfirmTypeAndMoveCard {
@@ -315,4 +369,44 @@ function ConvertTo-Boolean {
         "f" { return $false; } 
         0 { return $false; }
     }
+}
+
+function Add-RequestorMailtoLinkToCards {
+    param(
+        [Parameter(Mandatory=$true)]$Cards
+    )
+    Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
+
+    Foreach ($Card in $Cards) {
+        $RequestorEmailAddress = Get-TrackITWorkOrderDetails -WorkOrderNumber $Card.TrackITID | 
+        select -ExpandProperty Request_Email
+
+        $MailToURI = New-MailToURL -To "$RequestorEmailAddress,tervis_notifications@tervis.com" -Subject $Card.Title + "{$Card.BoardID}{$Card.TaskID}"
+
+        $JavaScriptFunctionForMailto = 'window.location.href = "$MailToURI"'
+
+        $FinalURL = "javascript:(function()%7B$([Uri]::EscapeDataString($JavaScriptFunctionForMailto)) %7D)()"
+
+    }
+}
+
+function Close-TrackITWhenDoneInKanbanize {
+
+$Message = @"
+{Requestor},
+
+Please do not reply to this email.
+
+The work order referenced in the subject of this email has been closed out.
+
+You may have an email from Tervis_Notifications@kanbnaize.com with more details on the resolution of your work order.
+
+If you think this was closed out in error or this issue is not fully resolved please call extension 2248 or 941-441-3168.
+
+Thanks,
+
+Help Desk Team
+
+"@
+
 }

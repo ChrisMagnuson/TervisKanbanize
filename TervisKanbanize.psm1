@@ -1,4 +1,7 @@
-﻿filter Mixin-TervisKanbanizeCardProperties {
+﻿#Requires -Modules KanbanizePowerShell, TrackITUnOfficial, TrackITWebAPIPowerShell, get-MultipleChoiceQuestionAnswered
+#Requires -Version 4
+
+filter Mixin-TervisKanbanizeCardProperties {
     $_ | Add-Member -MemberType ScriptProperty -Name TrackITID -Value { [int]$($this.customfields | Where name -eq "trackitid" | select -ExpandProperty value) }
     $_ | Add-Member -MemberType ScriptProperty -Name ScheduledDate -Value { $($this.customfields | Where name -eq "Scheduled Date" | select -ExpandProperty value) }
     $_ | Add-Member -MemberType ScriptProperty -Name PositionInt -Value { [int]$this.position }

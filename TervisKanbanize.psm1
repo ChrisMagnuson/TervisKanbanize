@@ -16,18 +16,10 @@ function Get-KanbanizeTervisHelpDeskCards {
     param(
         [switch]$HelpDeskProcess,
         [switch]$HelpDeskTechnicianProcess,
-        [switch]$HelpDeskTriageProcess
+        [switch]$HelpDeskTriageProcess,
+        [switch]$ExcludeDoneAndArchive
     )
-    
-    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
-
-    $BoardIDs = $KanbanizeBoards.projects.boards | 
-    where {
-        ($_.name -eq "Help Desk Technician Process" -and $HelpDeskTechnicianProcess) -or
-        ($_.name -eq "Help Desk Process" -and $HelpDeskProcess) -or
-        ($_.name -eq "Help Desk Triage Process" -and $HelpDeskTriageProcess)
-    } | 
-    select -ExpandProperty ID
+    $BoardIDs = Get-TervisKanbanizeHelpDeskBoardIDs -HelpDeskProcess:$HelpDeskProcess -HelpDeskTechnicianProcess:$HelpDeskTechnicianProcess -HelpDeskTriageProcess:$HelpDeskTriageProcess
     
     $Cards = @()
 
@@ -37,8 +29,31 @@ function Get-KanbanizeTervisHelpDeskCards {
         $Cards += $CardsFromBoard
     }
 
+    if($ExcludeDoneAndArchive) {
+        $Cards = $Cards |
+        where columnpath -NotIn "Done","Archive"
+    }
+
     $Cards | Mixin-TervisKanbanizeCardProperties
     $Cards
+}
+
+function Get-TervisKanbanizeHelpDeskBoardIDs {
+    param(
+        [switch]$HelpDeskProcess,
+        [switch]$HelpDeskTechnicianProcess,
+        [switch]$HelpDeskTriageProcess
+    )
+    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
+
+    $BoardIDs = $KanbanizeBoards.projects.boards | 
+    where {
+        ($_.name -eq "Help Desk Technician Process" -and $HelpDeskTechnicianProcess) -or
+        ($_.name -eq "Help Desk Process" -and $HelpDeskProcess) -or
+        ($_.name -eq "Help Desk Triage Process" -and $HelpDeskTriageProcess)
+    } | 
+    select -ExpandProperty ID
+    $BoardIDs
 }
 
 function Move-CompletedCardsThatHaveAllInformationToArchive {
@@ -182,14 +197,25 @@ Computer windows add to domain
 Mailbox New
 Remote application navision install
 Employee or temp hire new
+Software keyshot windows install
+Software keyshot mac install
+Computer business standard windows swap
+MES user new
 "@ -split "`r`n"
+
+function Get-ApprovedWorkInstructionsInEvernote {
+    $Script:ApprovedWorkInstructionsInEvernote
+}
 
 function compare-WorkInstructionTypesInEvernoteWithTypesInKanbanize {
     Compare-Object -ReferenceObject $(get-TervisKanbanizeTypes) -DifferenceObject $ApprovedWorkInstructionsInEvernote -IncludeEqual
 }
 
 function Find-CardsOnTechnicianBoardWithWorkInstructions {
-    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskTechnicianProcess
+    param(
+        [switch]$ExcludeDoneAndArchive
+    )
+    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskTechnicianProcess -ExcludeDoneAndArchive:$ExcludeDoneAndArchive
     $Cards |
     #where columnpath -EQ "Requested.Ready to be worked on" |
     where type -In $ApprovedWorkInstructionsInEvernote
@@ -204,12 +230,11 @@ function Find-MostImportantWorkInstructionsToCreate {
 }
 
 function Move-CardsWithWorkInstructionsToHelpDeskProcessBoard {
-    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
-    $HelpDeskProcessBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Process" | select -ExpandProperty ID
-    $CardsToMove = Find-CardsOnTechnicianBoardWithWorkInstructions
+    $HelpDeskProcessBoardID = Get-TervisKanbanizeHelpDeskBoardIDs -HelpDeskProcess
+    $CardsToMove = Find-CardsOnTechnicianBoardWithWorkInstructions -ExcludeDoneAndArchive
     
     foreach ($Card in $CardsToMove) {
-        Move-KanbanizeTask -BoardID $HelpDeskProcessBoardID -TaskID $Card.TaskID -Column "Requested.Ready to be worked on" -Lane "Planned Work"
+        Move-KanbanizeTask -BoardID $HelpDeskProcessBoardID -TaskID $Card.TaskID -Column $Card.columnpath -Lane "Planned Work"
     }
 }
 
@@ -441,4 +466,8 @@ Help Desk Team
 
 "@
 
+}
+
+function Find-CardsClosedInTrackITButOpenInKanbanize {
+    $OpenTrackItWorkOrdcers = get-TrackITWorkOrders
 }

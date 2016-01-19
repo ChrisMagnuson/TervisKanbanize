@@ -15,19 +15,32 @@ filter Mixin-TervisKanbanizeCardProperties {
     }
 }
 
+filter Mixin-TervisKanbanizeArchiveCardProperties {
+    $_ | Add-Member -MemberType ScriptProperty -Name ArchivedDate -Value { get-dtate $this.createdorarchived }
+}
+
 function Get-KanbanizeTervisHelpDeskCards {
     param(
         [switch]$HelpDeskProcess,
         [switch]$HelpDeskTechnicianProcess,
         [switch]$HelpDeskTriageProcess,
-        [switch]$ExcludeDoneAndArchive
+        [Parameter(ParameterSetName='NotContainer')][switch]$ExcludeDoneAndArchive,
+        [ValidateSet("archive")][Parameter(Mandatory=$true,ParameterSetName='Container')]$Container,
+        [Parameter(Mandatory=$true,ParameterSetName="Container")]$FromDate,
+        [Parameter(Mandatory=$true,ParameterSetName="Container")]$ToDate
     )
     $BoardIDs = Get-TervisKanbanizeHelpDeskBoardIDs -HelpDeskProcess:$HelpDeskProcess -HelpDeskTechnicianProcess:$HelpDeskTechnicianProcess -HelpDeskTriageProcess:$HelpDeskTriageProcess
     
     $Cards = @()
 
     Foreach ($BoardID in $BoardIDs) {
-        $CardsFromBoard = Get-KanbanizeAllTasks -BoardID $BoardID
+        if ($Container) {
+            $CardsFromBoard = Get-TervisKanbanizeAllTasksFromArchive -BoardID $BoardID -FromDate $FromDate -ToDate $ToDate
+            $CardsFromBoard | Mixin-TervisKanbanizeArchiveCardProperties
+        } else {
+            $CardsFromBoard = Get-KanbanizeAllTasks -BoardID $BoardID
+        }
+
         $CardsFromBoard | Add-Member -MemberType NoteProperty -Name BoardID -Value $BoardID
         $Cards += $CardsFromBoard
     }
@@ -40,6 +53,86 @@ function Get-KanbanizeTervisHelpDeskCards {
     $Cards | Mixin-TervisKanbanizeCardProperties
     $Cards
 }
+
+function Get-TervisKanbanizeAllTasksFromArchive {
+    param(
+        $BoardID,
+        $FromDate,
+        $ToDate
+    )
+    $progressPreference = 'silentlyContinue'
+    
+    $Cards = @()
+
+    $ArchiveTaskResults = Get-KanbanizeAllTasks -BoardID $BoardID -Container archive -FromDate $FromDate -ToDate $ToDate
+    if($ArchiveTaskResults) {
+        $Cards += $ArchiveTaskResults |
+        select -ExpandProperty Task
+
+        $TotalNumberOfPages = $ArchiveTaskResults.numberoftasks/$ArchiveTaskResults.tasksperpage
+        $TotalNumberOfPagesRoundedUp = [int][Math]::Ceiling($TotalNumberOfPages)
+
+        if ($TotalNumberOfPagesRoundedUp -gt 1) {
+            foreach ($PageNumber in 2..$TotalNumberOfPagesRoundedUp) {
+               $Cards += Get-KanbanizeAllTasks -BoardID $BoardID -Container archive -Page $PageNumber -FromDate $FromDate -ToDate $ToDate |
+               select -ExpandProperty Task
+            }
+        }
+    
+        $progressPreference = 'Continue' 
+    }
+    $Cards
+}
+
+function Get-TervisKanbanizeAllTaskDetails {
+    param(
+        $Cards
+    )
+
+    $AllCardDetails = @()
+    foreach ($Card in $Cards) {       
+        $AllCardDetails += Get-KanbanizeTaskDetails -BoardID $Card.Boardid -TaskID $Card.taskid -History yes
+    }
+
+    $AllCardDetails | Mixin-TervisKanbanizeCardDetailsProperties
+}
+
+filter Mixin-TervisKanbanizeCardDetailsProperties {
+    $_ | Add-Member -MemberType ScriptProperty -Name CreatedDate -Value { 
+        $This.HistoryDetails | 
+        where historyevent -eq "Task created" |
+        Select -ExpandProperty entrydate |
+        Get-Date
+    }
+
+    $_ | Add-Member -MemberType ScriptProperty -Name CompletedDate -Value { 
+        #Get the very last date this card was moved to Done, might have happened twice if it was brought back out of the archive because it was not finished
+        if ($This.columnname -in "Archive","Done") {
+            $This.HistoryDetails | 
+            where historyevent -eq "Task moved" |
+            where details -Match "to 'Done'" |
+            Select -ExpandProperty entrydate |
+            Get-Date |
+            sort |
+            select -Last 1
+        }
+    }
+
+    $_ | Add-Member -MemberType ScriptProperty -Name CompletedYearAndWeek -Value {
+        if($this.completedDate) {
+            Get-YearAndWeekFromDate $This.CompletedDate
+        }
+    }
+
+    $_ | Add-Member -MemberType ScriptProperty -Name CycleTimeTimeSpan -Value {
+        if ($This.CompletedDate) {
+            $this.CompletedDate - $this.CreatedDate
+        } else {
+            $(get-date) - $this.CreatedDate
+        }
+    }
+}
+
 
 function Get-TervisKanbanizeHelpDeskBoardIDs {
     param(

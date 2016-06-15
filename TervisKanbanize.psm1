@@ -3,6 +3,7 @@
 
 filter Mixin-TervisKanbanizeCardProperties {
     $_ | Add-Member -MemberType ScriptProperty -Name TrackITID -Value { [int]$($this.customfields | Where name -eq "trackitid" | select -ExpandProperty value) }
+    $_ | Add-Member -MemberType ScriptProperty -Name TrackITIDFromTitle -Value { if ($this.Title -match " - ") { [int]$($this.Title -split " - ")[0] } }
     $_ | Add-Member -MemberType ScriptProperty -Name ScheduledDate -Value { $($this.customfields | Where name -eq "Scheduled Date" | select -ExpandProperty value) }
     $_ | Add-Member -MemberType ScriptProperty -Name PositionInt -Value { [int]$this.position }
     $_ | Add-Member -MemberType ScriptProperty -Name PriorityInt -Value { 
@@ -247,7 +248,7 @@ Select Wo_num, task
     $UnassignedWorkOrders = Invoke-SQL -dataSource sql -database TRACKIT9_DATA -sqlCommand $QueryToGetUnassignedWorkOrders
 
     foreach ($UnassignedWorkOrder in $UnassignedWorkOrders ) {
-        $CardName = "" + $UnassignedWorkOrder.Wo_Num + " -  " + $UnassignedWorkOrder.Task    
+        $CardName = "" + $UnassignedWorkOrder.Wo_Num + " - " + $UnassignedWorkOrder.Task    
         try {
             if($UnassignedWorkOrder.Wo_Num -in $($Cards.TrackITID)) {throw "There is already a card for this Track IT"}
 

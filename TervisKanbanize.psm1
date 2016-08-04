@@ -261,47 +261,16 @@ Select Wo_num, task
     }
 }
 
-$ApprovedWorkInstructionsInEvernote = @"
-Printer toner swap
-Printer waste toner box swap
-Termination
-Whitelist email address
-Internet explorer browser settings reset
-Distribution group member add
-Distribution group member remove
-Distribution group create
-Monitor swap or add
-Layer 1 equipment get
-Personal phone work email install and TervisWifi install
-Software chrome install
-Software paint.net install
-Uninstall software
-iPhone Swap
-iPhone get initialize and install
-iPhone work email access grant
-Active directory user photo update
-EBS user responsibilities update
-Software oracle sql developer install
-Mailbox access grant
-Termination IT
-EBS rapid planning user responsibilities update
-Active directory user password reset
-Active directory user phone number update
-CRM password reset
-Tradeshow iPad initialize
-Computer rename
-Computer windows add to domain
-Mailbox New
-Remote application navision install
-Employee or temp hire new
-Software keyshot windows install
-Software keyshot mac install
-Computer business standard windows swap
-MES user new
-"@ -split "`r`n"
-
 function Get-ApprovedWorkInstructionsInEvernote {
-    $Script:ApprovedWorkInstructionsInEvernote
+    $ProjectsAndBoards = Get-KanbanizeProjectsAndBoards
+    $Project = $projectsAndBoards.projects | where name -eq "Technical Services"
+    $Board = $Project.boards | where name -EQ "Help Desk Standard Requests"
+    $BoardSettings = Get-KanbanizeFullBoardSettings -BoardID $Board.id
+    $Tasks = Get-KanbanizeAllTasks -BoardID $Board.id
+
+    $Tasks | 
+    where { $_.customfields | where name -EQ "Work Instruction" | select -ExpandProperty value } |
+    Select -ExpandProperty Type
 }
 
 function compare-WorkInstructionTypesInEvernoteWithTypesInKanbanize {

@@ -344,7 +344,7 @@ function Invoke-PrioritizeConfirmTypeAndMoveCard {
     [CmdletBinding()]
     param()
 
-    $VerbosePreference = "continue"
+    #$VerbosePreference = "continue"
 
     Import-Module KanbanizePowerShell -Force
     Import-module TrackItWebAPIPowerShell -Force
@@ -358,8 +358,12 @@ function Invoke-PrioritizeConfirmTypeAndMoveCard {
 
     $Types = get-TervisKanbanizeTypes
 
-    $WaitingToBePrioritized = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess |
-    where columnpath -Match "Waiting to be prioritized" |
+    #$WaitingToBePrioritized = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess |
+    #where columnpath -Match "Waiting to be prioritized" |
+    #sort positionint
+
+    $WaitingToBePrioritized = Get-KanbanizeTervisHelpDeskCards -HelpDeskTriageProcess |
+    where columnpath -NotMatch "Waiting for scheduled date" |
     sort positionint
 
     $global:CardsThatNeedToBeCreatedTypes = @()
@@ -388,19 +392,18 @@ function Invoke-PrioritizeConfirmTypeAndMoveCard {
 
         read-host "Hit enter once you have reviewed the details about this request"
 
-        if($Card.Type -ne "None") {
+        if ($Card.Type -ne "None") {
             $TypeCorrect = get-MultipleChoiceQuestionAnswered -Question "Type correct?" -Choices "Yes","No" | ConvertTo-Boolean               
         }
         
-        if( !$TypeCorrect -or ($Card.Type -eq "None") )
-        {        
+        if (-not $TypeCorrect -or ($Card.Type -eq "None")) {        
             $SelectedType = $Types | Out-GridView -PassThru
     
             if ($SelectedType -ne $null) {
                 Edit-KanbanizeTask -TaskID $Card.taskid -BoardID $Card.BoardID -Type $SelectedType        
             } else {
                 $ToBeCreatedSelectedType = $global:ToBeCreatedTypes | Out-GridView -PassThru
-                if($ToBeCreatedSelectedType -ne $null) {
+                if ($ToBeCreatedSelectedType -ne $null) {
                     $global:CardsThatNeedToBeCreatedTypes += [pscustomobject]@{taskid=$Card.taskid; type=$ToBeCreatedSelectedType;BoardID=$Card.BoardID}
                 } else {
                     $ToBeCreatedSelectedType = read-host "Enter the new type you want to use for this card"

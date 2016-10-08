@@ -1,4 +1,4 @@
-﻿#Requires -Modules KanbanizePowerShell, TrackITUnOfficial, TrackITWebAPIPowerShell, get-MultipleChoiceQuestionAnswered
+﻿#Requires -Modules KanbanizePowerShell, TrackITUnOfficial, TrackITWebAPIPowerShell, get-MultipleChoiceQuestionAnswered, TervisTrackITWebAPIPowerShell
 #Requires -Version 4
 
 filter Mixin-TervisKanbanizeCardProperties {
@@ -179,6 +179,7 @@ function Move-CardsInScheduledDateThatDontHaveScheduledDateSet {
     }
 }
 
+#Unfinished
 function Move-CardsInDoneListThatHaveStillHaveSomethingIncomplete {
     $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess
     
@@ -319,17 +320,12 @@ function Get-TervisWorkOrderDetails {
         $Card
     )
 
-    $WorkOrder = Get-TrackITWorkOrder -WorkOrderNumber $Card.TrackITID
+    $WorkOrder = Get-TervisTrackITWorkOrder -WorkOrderNumber $Card.TrackITID
     $Task = Get-KanbanizeTaskDetails -BoardID $Card.BoardID -TaskID $Card.TaskID -History yes -Event comment
 
     $Card | Select TaskID, Title, Type, deadline, PriorityInt| FL
     
-    $WorkOrder.data | Add-Member -MemberType ScriptProperty -Name AllNotes -Value {
-        $This.notes | GM | where membertype -EQ noteproperty | % { $This.notes.$($_.name) }
-    }
-    $WorkOrder.data.AllNotes | Add-Member -MemberType ScriptProperty -Name createddateDate -Value { get-date $this.createddate }
-    
-    $WorkOrder.data.AllNotes | 
+    $WorkOrder.AllNotes | 
     sort createddateDate -Descending |
     select createddateDate, CreatedBy, FullText |
     FL
@@ -370,25 +366,7 @@ function Invoke-PrioritizeConfirmTypeAndMoveCard {
     $global:ToBeCreatedTypes = @()
 
     foreach ($Card in $WaitingToBePrioritized) {
-        $WorkOrder = Get-TrackITWorkOrder -WorkOrderNumber $Card.TrackITID
-        $Task = Get-KanbanizeTaskDetails -BoardID $Card.BoardID -TaskID $Card.TaskID -History yes -Event comment
-
-        $Card | Select TaskID, Title, Type, deadline, PriorityInt| FL
-    
-        $WorkOrder.data | Add-Member -MemberType ScriptProperty -Name AllNotes -Value {
-            $This.notes | GM | where membertype -EQ noteproperty | % { $This.notes.$($_.name) }
-        }
-        $WorkOrder.data.AllNotes | Add-Member -MemberType ScriptProperty -Name createddateDate -Value { get-date $this.createddate }
-    
-        $WorkOrder.data.AllNotes | 
-        sort createddateDate -Descending |
-        select createddateDate, CreatedBy, FullText |
-        FL
-
-        $Task.HistoryDetails |
-        where historyevent -ne "Comment deleted" |
-        Select EntryDate, Author, Details |
-        FL
+        Get-TervisWorkOrderDetails -Card $Card
 
         read-host "Hit enter once you have reviewed the details about this request"
 
@@ -422,16 +400,20 @@ function Invoke-PrioritizeConfirmTypeAndMoveCard {
                 4 { "067db7" } #Blue for priority 4
             }
             Write-Verbose "Color: $color"
-            Edit-KanbanizeTask -BoardID $Card.BoardID -TaskID $Task.taskid -Color $color
+            Edit-KanbanizeTask -BoardID $Card.BoardID -TaskID $Card.taskid -Color $color
         }
 
-        $WorkInstructionsForThisRequest = $card.Type -in $ApprovedWorkInstructionsInEvernote
+        #$WorkInstructionsForThisRequest = $card.Type -in $ApprovedWorkInstructionsInEvernote
         
-        if($WorkInstructionsForThisRequest) {
-            $DestinationBoardID = $HelpDeskProcessBoardID
-        } else {
-            $DestinationBoardID = $HelpDeskTechnicianProcessBoardID
-        }
+        #if($WorkInstructionsForThisRequest) {
+        #    $DestinationBoardID = $HelpDeskProcessBoardID
+        #} else {
+        #    $DestinationBoardID = $HelpDeskTechnicianProcessBoardID
+        #}
+
+        #For now send everything tot he Help Desk Process board
+        $DestinationBoardID = $HelpDeskProcessBoardID
+
         Write-Verbose "Destination column: $DestinationBoardID"
 
         $NeedToBeEscalated = get-MultipleChoiceQuestionAnswered -Question "Does this need to be escalated?" -Choices "Yes","No" | 
@@ -439,10 +421,10 @@ function Invoke-PrioritizeConfirmTypeAndMoveCard {
         
         if($NeedToBeEscalated) {
             $DestinationLane = "Unplanned Work"
-            Move-KanbanizeTask -BoardID $DestinationBoardID -TaskID $Task.taskid -Lane $DestinationLane -Column "Requested.Ready to be worked on"
+            Move-KanbanizeTask -BoardID $DestinationBoardID -TaskID $Card.taskid -Lane $DestinationLane -Column "Requested.Ready to be worked on"
         } else { 
             $DestinationLane = "Planned Work"
-            Move-KanbanizeTask -BoardID $DestinationBoardID -TaskID $Task.taskid -Lane $DestinationLane -Column "Requested.Ready to be worked on"
+            Move-KanbanizeTask -BoardID $DestinationBoardID -TaskID $Card.taskid -Lane $DestinationLane -Column "Requested.Ready to be worked on"
 
             <#
             $CardsThatNeedToBeSorted = $Cards | 
@@ -460,7 +442,7 @@ function Invoke-PrioritizeConfirmTypeAndMoveCard {
             } else { 0 }
             Write-Verbose "Rightposition in column: $RightPosition"
             
-            Move-KanbanizeTask -BoardID $DestinationBoardID -TaskID $Task.taskid -Lane $DestinationLane -Column $DestinationColumn -Position $RightPosition
+            Move-KanbanizeTask -BoardID $DestinationBoardID -TaskID $Card.taskid -Lane $DestinationLane -Column $DestinationColumn -Position $RightPosition
             #>
         }
 

@@ -319,7 +319,6 @@ function Get-TervisWorkOrderDetails {
     param(
         $Card
     )
-
     $WorkOrder = Get-TervisTrackITWorkOrder -WorkOrderNumber $Card.TrackITID
     $Task = Get-KanbanizeTaskDetails -BoardID $Card.BoardID -TaskID $Card.TaskID -History yes -Event comment
 

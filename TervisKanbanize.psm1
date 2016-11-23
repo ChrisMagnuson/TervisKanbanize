@@ -154,7 +154,7 @@ function Get-TervisKanbanizeHelpDeskBoardIDs {
 }
 
 function Move-CompletedCardsThatHaveAllInformationToArchive {
-    $OpenTrackITWorkOrders = get-TrackITWorkOrders
+    $OpenTrackITWorkOrders = get-TervisTrackITWorkOrders
     
     $CardsThatCanBeArchived = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess | 
     where columnpath -Match "Done" |
@@ -186,7 +186,7 @@ function Move-CardsInDoneListThatHaveStillHaveSomethingIncomplete {
     $CardsInDoneList = $Cards |
     where columnpath -Match "Done"
     
-    $OpenTrackITWorkOrders = get-TrackITWorkOrders
+    $OpenTrackITWorkOrders = get-TervisTrackITWorkOrders
 
     $CardsThatAreOpenInTrackITButDoneInKanbanize = Compare-Object -ReferenceObject $OpenTrackITWorkOrders.woid -DifferenceObject $Cardsindonelist.trackitid -PassThru -IncludeEqual |
     where sideindicator -EQ "=="

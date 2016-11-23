@@ -7,7 +7,7 @@
     $Cards | Mixin-TervisKanbanizeCardProperties
     $CardsWithTrackITIDs = $Cards | where {$_.trackitid}
     
-    $WorkOrders = TrackITUnofficial\Get-TrackITWorkOrder
+    $WorkOrders = Get-TervisTrackITWorkOrder
     $WorkOrders | Mixin-TervisTrackITWorkOrderProperties
     $WorkOrdersWithOutKanbanizeIDs = $WorkOrders | where { -not $_.KanbanizeID }
 

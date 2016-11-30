@@ -43,7 +43,6 @@ function Get-KanbanizeTervisHelpDeskCards {
             $CardsFromBoard = Get-KanbanizeAllTasks -BoardID $BoardID
         }
 
-        $CardsFromBoard | Add-Member -MemberType NoteProperty -Name BoardID -Value $BoardID
         $Cards += $CardsFromBoard
     }
 

@@ -5,10 +5,9 @@
     $Cards = $null
     $BoardIDs | % { $Cards += Get-KanbanizeAllTasks -BoardID $_ }
     $Cards | Mixin-TervisKanbanizeCardProperties
-    $CardsWithTrackITIDs = $Cards | where {$_.trackitid}
+    $CardsWithTrackITIDs = $Cards | where trackitid
     
     $WorkOrders = Get-TervisTrackITWorkOrder
-    $WorkOrders | Mixin-TervisTrackITWorkOrderProperties
     $WorkOrdersWithOutKanbanizeIDs = $WorkOrders | where { -not $_.KanbanizeID }
 
     $CardsWithTrackITIDsOpenInTrackIT = $CardsWithTrackITIDs | where trackitid -in $($WorkOrdersWithOutKanbanizeIDs.WOID)

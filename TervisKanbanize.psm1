@@ -14,6 +14,7 @@ filter Mixin-TervisKanbanizeCardProperties {
             "#067db7" {4} #Blue for priority 4
         }
     }
+    $_ | Add-Member -MemberType ScriptProperty -Name BoardID -Value { $this.BoardParent }
 }
 
 filter Mixin-TervisKanbanizeArchiveCardProperties {
@@ -396,6 +397,24 @@ Help Desk Team
 
 }
 
-function Find-CardsClosedInTrackITButOpenInKanbanize {
-    $OpenTrackItWorkOrdcers = get-TrackITWorkOrders
+Function Find-CardsClosedInTrackITButOpenInKanbanize {
+    $KanbanizeProjedctsAndBoards = Get-KanbanizeProjectsAndBoards
+    $BoardIDs = $KanbanizeProjedctsAndBoards.projects.boards.ID
+
+    $Cards = $null
+    $BoardIDs | % { $Cards += Get-KanbanizeAllTasks -BoardID $_ }
+    $Cards | Mixin-TervisKanbanizeCardProperties
+    $CardsWithTrackITIDs = $Cards | where trackitid
+    
+    $WorkOrders = Get-TervisTrackITUnOfficialWorkOrder
+
+    $CardsWithTrackITIDs |
+    where TrackITID -NotIn $WorkOrders.WOID
+}
+
+Function Remove-KanbanizeCardsForClosedTrackITs {
+    $CardsThatNeedToBeClosed = Find-CardsClosedInTrackITButOpenInKanbanize
+    foreach ($Card in $CardsThatNeedToBeClosed) {
+        Remove-KanbanizeTask -BoardID $Card.BoardParent -TaskID $Card.TaskID
+    }
 }

@@ -396,6 +396,21 @@ Help Desk Team
 
 }
 
+Function Get-WorkOrdersThatHaveKanbanizeCards {
+    $KanbanizeProjedctsAndBoards = Get-KanbanizeProjectsAndBoards
+    $BoardIDs = $KanbanizeProjedctsAndBoards.projects.boards.ID
+
+    $Cards = $null
+    $BoardIDs | % { $Cards += Get-KanbanizeAllTasks -BoardID $_ }
+    $Cards | Mixin-TervisKanbanizeCardProperties
+    $CardsWithTrackITIDs = $Cards | where trackitid
+    
+    $WorkOrders = Get-TervisTrackITUnOfficialWorkOrder
+
+    $WorkOrders |
+    where WOID -In $CardsWithTrackITIDs.TrackITID
+}
+
 Function Find-CardsClosedInTrackITButOpenInKanbanize {
     $KanbanizeProjedctsAndBoards = Get-KanbanizeProjectsAndBoards
     $BoardIDs = $KanbanizeProjedctsAndBoards.projects.boards.ID

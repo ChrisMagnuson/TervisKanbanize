@@ -321,10 +321,16 @@ function Get-TervisWorkOrderDetails {
     )
     $Card | Select TaskID, Title, Type, deadline, PriorityInt| FL
     
-    $WorkOrder.AllNotes | 
-    sort createddateDate -Descending |
-    select createddateDate, CreatedBy, FullText |
-    FL
+    if ($Card.TrackITID) {
+        $WorkOrder = Get-TervisTrackITWorkOrder -WorkOrderNumber $Card.TrackITID    
+    
+        $WorkOrder.AllNotes | 
+        sort createddateDate -Descending |
+        select createddateDate, CreatedBy, FullText |
+        FL
+    }
+    
+    $Task = Get-KanbanizeTaskDetails -BoardID $Card.BoardID -TaskID $Card.TaskID -History yes -Event comment
 
     $Task.HistoryDetails |
     where historyevent -ne "Comment deleted" |

@@ -225,6 +225,7 @@ function Import-UnassignedTrackItsToKanbanize {
             if($UnassignedWorkOrder.Wo_Num -in $($Cards.TrackITID)) {throw "There is already a card for this Track IT"}
 
             New-KanbanizeCardFromTrackITWorkOrder -WorkOrder $UnassignedWorkOrder -DestinationBoardID $TriageProcessBoardID -DestinationColumn $TriageProcessStartingColumn
+            Edit-TrackITWorkOrder -WorkOrderNumber $WorkOrder.Wo_Num -AssignedTechnician "Backlog" | Out-Null
         } catch {            
             $ErrorMessage = "Error running Import-UnassignedTrackItsToKanbanize: " + $UnassignedWorkOrder.Wo_Num + " -  " + $UnassignedWorkOrder.Task
             Send-MailMessage -From HelpDeskBot@tervis.com -to HelpDeskDispatch@tervis.com -subject $ErrorMessage -SmtpServer cudaspam.tervis.com -Body $_.Exception|format-list -force
@@ -242,7 +243,6 @@ Function New-KanbanizeCardFromTrackITWorkOrder {
         $CardName = "" + $WorkOrder.Wo_Num + " -  " + $WorkOrder.Task
         Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
         $Response = New-KanbanizeTask -BoardID $DestinationBoardID -Title $CardName -CustomFields @{"trackitid"=$WorkOrder.Wo_Num;"trackiturl"="http://trackit/TTHelpdesk/Application/Main?tabs=w$($WorkOrder.Wo_Num)"} -Column $DestinationColumn -Lane "Planned Work"
-        Edit-TrackITWorkOrder -WorkOrderNumber $WorkOrder.Wo_Num -AssignedTechnician "Backlog" | Out-Null
     }
 }
 
@@ -459,4 +459,9 @@ Function Remove-KanbanizeCardsForClosedTrackITs {
     foreach ($Card in $CardsThatNeedToBeClosed) {
         Remove-KanbanizeTask -BoardID $Card.BoardParent -TaskID $Card.TaskID
     }
+}
+
+    $workorders = Get-TervisTrackITUnOfficialWorkOrders
+    $hashTable = $workorders | group RESPONS -AsHashTable
+    $hashTable.'Blaire Flood' | New-KanbanizeCardFromTrackITWorkOrder -DestinationBoardID 72
 }

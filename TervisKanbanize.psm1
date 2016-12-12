@@ -201,35 +201,48 @@ function Move-CardsInDoneListThatHaveStillHaveSomethingIncomplete {
     }
 }
 
-function Import-UnassignedTrackItsToKanbanize {
-    Import-Module TrackITWebAPIPowerShell -Force
-
-    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess -HelpDeskTriageProcess
-
-$QueryToGetUnassignedWorkOrders = @"
+Function Get-UnassignedTrackITs {
+    $QueryToGetUnassignedWorkOrders = @"
 Select Wo_num, task, request_fullname, request_email
   from [TRACKIT9_DATA].[dbo].[vTASKS_BROWSE]
   Where RESPONS IS Null AND
   WorkOrderStatusName != 'Closed'
 "@
+    Invoke-SQL -dataSource sql -database TRACKIT9_DATA -sqlCommand $QueryToGetUnassignedWorkOrders
+}
 
-    Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
+function Import-UnassignedTrackItsToKanbanize {
+
+    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess -HelpDeskTriageProcess
+
     $TriageProcessBoardID = 29
     $TriageProcessStartingColumn = "Requested"
 
-    $UnassignedWorkOrders = Invoke-SQL -dataSource sql -database TRACKIT9_DATA -sqlCommand $QueryToGetUnassignedWorkOrders
+    $UnassignedWorkOrders = Get-UnassignedTrackITs
 
     foreach ($UnassignedWorkOrder in $UnassignedWorkOrders ) {
-        $CardName = "" + $UnassignedWorkOrder.Wo_Num + " -  " + $UnassignedWorkOrder.Task    
         try {
             if($UnassignedWorkOrder.Wo_Num -in $($Cards.TrackITID)) {throw "There is already a card for this Track IT"}
 
-            $Response = New-KanbanizeTask -BoardID $TriageProcessBoardID -Title $CardName -CustomFields @{"trackitid"=$UnassignedWorkOrder.Wo_Num;"trackiturl"="http://trackit/TTHelpdesk/Application/Main?tabs=w$($UnassignedWorkOrder.Wo_Num)"} -Column $TriageProcessStartingColumn -Lane "Planned Work"
-            Edit-TrackITWorkOrder -WorkOrderNumber $UnassignedWorkOrder.Wo_Num -AssignedTechnician "Backlog" | Out-Null
+            New-KanbanizeCardFromTrackITWorkOrder -WorkOrder $UnassignedWorkOrder -DestinationBoardID $TriageProcessBoardID -DestinationColumn $TriageProcessStartingColumn
         } catch {            
-            $ErrorMessage = "Error running Import-UnassignedTrackItsToKanbanize: " + $CardName
+            $ErrorMessage = "Error running Import-UnassignedTrackItsToKanbanize: " + $UnassignedWorkOrder.Wo_Num + " -  " + $UnassignedWorkOrder.Task
             Send-MailMessage -From HelpDeskBot@tervis.com -to HelpDeskDispatch@tervis.com -subject $ErrorMessage -SmtpServer cudaspam.tervis.com -Body $_.Exception|format-list -force
         }
+    }
+}
+
+Function New-KanbanizeCardFromTrackITWorkOrder {
+    param (
+        [Parameter(Mandatory,ValueFromPipeline)]$WorkOrder,
+        $DestinationBoardID,
+        $DestinationColumn
+    )
+    process {
+        $CardName = "" + $WorkOrder.Wo_Num + " -  " + $WorkOrder.Task
+        Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
+        $Response = New-KanbanizeTask -BoardID $DestinationBoardID -Title $CardName -CustomFields @{"trackitid"=$WorkOrder.Wo_Num;"trackiturl"="http://trackit/TTHelpdesk/Application/Main?tabs=w$($WorkOrder.Wo_Num)"} -Column $DestinationColumn -Lane "Planned Work"
+        Edit-TrackITWorkOrder -WorkOrderNumber $WorkOrder.Wo_Num -AssignedTechnician "Backlog" | Out-Null
     }
 }
 

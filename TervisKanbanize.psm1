@@ -246,6 +246,13 @@ Function New-KanbanizeCardFromTrackITWorkOrder {
     }
 }
 
+Function Close-WorkOrdersForEmployeesWhoDontWorkAtTervis {
+    $WorkOrders = Get-TervisTrackITUnOfficialWorkOrder
+    $ADUser = get-aduser -Filter *
+    $WorkOrdersWithoutRequestorInAD = $WorkOrders | where REQUEST_EMAIL -NotIn $ADUser.UserPrincipalName
+    $WorkOrdersWithoutRequestorInAD | group request_email
+}
+
 function Import-TrackItToKanbanize {
     param (
         $TrackITID

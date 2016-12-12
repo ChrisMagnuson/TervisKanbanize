@@ -1,6 +1,11 @@
 ﻿#Requires -Modules KanbanizePowerShell, TrackITUnOfficial, TrackITWebAPIPowerShell, get-MultipleChoiceQuestionAnswered, TervisTrackITWebAPIPowerShell
 #Requires -Version 4
 
+function Install-TervisKanbanize {
+    Set-KanbanizeSubDomain -SubDomain tervis -Permanent
+    Invoke-KanbanizeLogin -Permanent
+}
+
 filter Mixin-TervisKanbanizeCardProperties {
     $_ | Add-Member -MemberType ScriptProperty -Name TrackITID -Value { [int]$($this.customfields | Where name -eq "trackitid" | select -ExpandProperty value) }
     $_ | Add-Member -MemberType ScriptProperty -Name TrackITIDFromTitle -Value { if ($this.Title -match " - ") { [int]$($this.Title -split " - ")[0] } }

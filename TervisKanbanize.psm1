@@ -2,8 +2,13 @@
 #Requires -Version 4
 
 function Install-TervisKanbanize {
+    param (
+        $Email,
+        $Pass
+    )
+
     Set-KanbanizeSubDomain -SubDomain tervis -Permanent
-    Invoke-KanbanizeLogin -Permanent
+    Invoke-KanbanizeLogin -Permanent @PSBoundParameters
 }
 
 filter Mixin-TervisKanbanizeCardProperties {
@@ -158,49 +163,6 @@ function Get-TervisKanbanizeHelpDeskBoardIDs {
     $BoardIDs
 }
 
-function Move-CompletedCardsThatHaveAllInformationToArchive {
-    $OpenTrackITWorkOrders = get-TervisTrackITWorkOrders
-    
-    $CardsThatCanBeArchived = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess | 
-    where columnpath -Match "Done" |
-    where type -ne "None" |
-    where assignee -NE "None" |
-    where color -in ("#cc1a33","#f37325","#77569b","#067db7") |
-    where TrackITID |
-    where TrackITID -NotIn $($OpenTrackITWorkOrders.woid)
-
-    foreach ($Card in $CardsThatCanBeArchived) {
-        Move-KanbanizeTask -BoardID $Card.BoardID -TaskID $Card.TaskID -Column "Archive"
-    }
-}
-
-function Move-CardsInScheduledDateThatDontHaveScheduledDateSet {
-    $CardsInScheduledDateThatDontHaveScheduledDateSet = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess -HelpDeskTriageProcess | 
-    where columnpath -Match "Waiting for Scheduled date" | 
-    where {$_.scheduleddate -eq $null -or $_.scheduleddate -eq "" }
-    
-    foreach ($Card in $CardsInScheduledDateThatDontHaveScheduledDateSet) {
-        Move-KanbanizeTask -BoardID $Card.BoardID -TaskID $Card.TaskID -Column "In Progress.Waiting to be worked on"
-    }
-}
-
-#Unfinished
-function Move-CardsInDoneListThatHaveStillHaveSomethingIncomplete {
-    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess
-    
-    $CardsInDoneList = $Cards |
-    where columnpath -Match "Done"
-    
-    $OpenTrackITWorkOrders = get-TervisTrackITWorkOrders
-
-    $CardsThatAreOpenInTrackITButDoneInKanbanize = Compare-Object -ReferenceObject $OpenTrackITWorkOrders.woid -DifferenceObject $Cardsindonelist.trackitid -PassThru -IncludeEqual |
-    where sideindicator -EQ "=="
-
-    foreach ($Card in $CardsThatCanBeArchived){
-        Move-KanbanizeTask -BoardID $Card.BoardID -TaskID $Card.TaskID -Column "Archive"
-    }
-}
-
 Function Get-UnassignedTrackITs {
     $QueryToGetUnassignedWorkOrders = @"
 Select Wo_num, task, request_fullname, request_email
@@ -209,28 +171,6 @@ Select Wo_num, task, request_fullname, request_email
   WorkOrderStatusName != 'Closed'
 "@
     Invoke-SQL -dataSource sql -database TRACKIT9_DATA -sqlCommand $QueryToGetUnassignedWorkOrders
-}
-
-function Import-UnassignedTrackItsToKanbanize {
-
-    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess -HelpDeskTriageProcess
-
-    $TriageProcessBoardID = 29
-    $TriageProcessStartingColumn = "Requested"
-
-    $UnassignedWorkOrders = Get-UnassignedTrackITs
-
-    foreach ($UnassignedWorkOrder in $UnassignedWorkOrders ) {
-        try {
-            if($UnassignedWorkOrder.Wo_Num -in $($Cards.TrackITID)) {throw "There is already a card for this Track IT"}
-
-            New-KanbanizeCardFromTrackITWorkOrder -WorkOrder $UnassignedWorkOrder -DestinationBoardID $TriageProcessBoardID -DestinationColumn $TriageProcessStartingColumn
-            Edit-TrackITWorkOrder -WorkOrderNumber $WorkOrder.Wo_Num -AssignedTechnician "Backlog" | Out-Null
-        } catch {            
-            $ErrorMessage = "Error running Import-UnassignedTrackItsToKanbanize: " + $UnassignedWorkOrder.Wo_Num + " -  " + $UnassignedWorkOrder.Task
-            Send-MailMessage -From HelpDeskBot@tervis.com -to HelpDeskDispatch@tervis.com -subject $ErrorMessage -SmtpServer cudaspam.tervis.com -Body $_.Exception|format-list -force
-        }
-    }
 }
 
 Function New-KanbanizeCardFromTrackITWorkOrder {
@@ -244,13 +184,6 @@ Function New-KanbanizeCardFromTrackITWorkOrder {
         Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
         $Response = New-KanbanizeTask -BoardID $DestinationBoardID -Title $CardName -CustomFields @{"trackitid"=$WorkOrder.Wo_Num;"trackiturl"="http://trackit/TTHelpdesk/Application/Main?tabs=w$($WorkOrder.Wo_Num)"} -Column $DestinationColumn -Lane "Planned Work"
     }
-}
-
-Function Close-WorkOrdersForEmployeesWhoDontWorkAtTervis {
-    $WorkOrders = Get-TervisTrackITUnOfficialWorkOrder
-    $ADUser = get-aduser -Filter *
-    $WorkOrdersWithoutRequestorInAD = $WorkOrders | where REQUEST_EMAIL -NotIn $ADUser.UserPrincipalName
-    $WorkOrdersWithoutRequestorInAD | group request_email
 }
 
 function Import-TrackItToKanbanize {

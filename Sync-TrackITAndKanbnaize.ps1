@@ -7,15 +7,19 @@
     $Cards | Mixin-TervisKanbanizeCardProperties
     $CardsWithTrackITIDs = $Cards | where trackitid
     
-    $WorkOrders = Get-TervisTrackITWorkOrder
+    $WorkOrders = Get-TervisTrackITUnOfficialWorkOrder
     $WorkOrdersWithOutKanbanizeIDs = $WorkOrders | where { -not $_.KanbanizeID }
+
+    $CardsWithTrackITIDsOpenInTrackIT = $CardsWithTrackITIDs | where trackitid -in $($WorkOrders.WOID)
 
     $CardsWithTrackITIDsOpenInTrackIT = $CardsWithTrackITIDs | where trackitid -in $($WorkOrdersWithOutKanbanizeIDs.WOID)
     
     foreach ($Card in $CardsWithTrackITIDsOpenInTrackIT) {
+        $Board = $KanbanizeProjedctsAndBoards.projects.boards | where {$_.id -eq $Card.boardparent}
+        $Project = $KanbanizeProjedctsAndBoards.projects| where {$_.Boards.contains($Board)}
+
         Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
-        $Board = $KanbanizeProjedctsAndBoards.projects.boards | where {$_.id -eq $Card.boardparent}    
-        Edit-TrackITWorkOrder -WorkOrderNumber $Card.TrackITID -UdfLookup2 $Card.columnname -UdfLookup3 $Card.lanename -UdfLookup1 $Board.name -UdfText2 $Card.taskid
+        Edit-TervisTrackITWorkOrder -WorkOrderNumber $Card.TrackITID -KanbanizeCardID $Card.taskid
     }
     <#
     foreach ($WorkOrder in $WorkOrdersWithOutKanbanizeIDs) {

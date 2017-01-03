@@ -105,41 +105,63 @@ function Get-TervisKanbanizeAllTaskDetails {
         $AllCardDetails += Get-KanbanizeTaskDetails -BoardID $Card.Boardid -TaskID $Card.taskid -History yes
     }
 
-    $AllCardDetails | Mixin-TervisKanbanizeCardDetailsProperties
+    $AllCardDetails | Add-TervisKanbanizeCardDetailsProperties -PassThru
 }
 
-filter Mixin-TervisKanbanizeCardDetailsProperties {
-    $_ | Add-Member -MemberType ScriptProperty -Name CreatedDate -Value { 
-        $This.HistoryDetails | 
-        where historyevent -eq "Task created" |
-        Select -ExpandProperty entrydate |
-        Get-Date
-    }
-
-    $_ | Add-Member -MemberType ScriptProperty -Name CompletedDate -Value { 
-        #Get the very last date this card was moved to Done, might have happened twice if it was brought back out of the archive because it was not finished
-        if ($This.columnname -in "Archive","Done") {
+Function Add-TervisKanbanizeCardDetailsProperties {
+    param(
+        [Parameter(ValueFromPipeline)]$Card,
+        [Switch]$PassThru
+    )
+    process {
+        $Card | 
+        Add-Member -Name CreatedDate -MemberType ScriptProperty -Value { 
             $This.HistoryDetails | 
-            where historyevent -eq "Task moved" |
-            where details -Match "to 'Done'" |
+            where historyevent -eq "Task created" |
             Select -ExpandProperty entrydate |
-            Get-Date |
-            sort |
-            select -Last 1
+            Get-Date
+        } -PassThru | 
+        Add-Member -Name CompletedDate -MemberType ScriptProperty -Value { 
+            #Get the very last date this card was moved to Done, might have happened twice if it was brought back out of the archive because it was not finished
+            if ($This.columnname -in "Archive","Done") {
+                $This.HistoryDetails | 
+                where historyevent -eq "Task moved" |
+                where details -Match "to 'Done'" |
+                Select -ExpandProperty entrydate |
+                Get-Date |
+                sort |
+                select -Last 1
+            }
+        } -PassThru |
+        Add-Member -Name CompletedYearAndWeek -MemberType ScriptProperty -Value {
+            if($this.completedDate) {
+                Get-YearAndWeekFromDate $This.CompletedDate
+            }
+        } -PassThru |
+        Add-Member -Name CycleTimeTimeSpan -MemberType ScriptProperty -Value {
+            if ($This.CompletedDate) {
+                $this.CompletedDate - $this.CreatedDate
+            } else {
+                $(get-date) - $this.CreatedDate
+            }
         }
-    }
 
-    $_ | Add-Member -MemberType ScriptProperty -Name CompletedYearAndWeek -Value {
-        if($this.completedDate) {
-            Get-YearAndWeekFromDate $This.CompletedDate
+        $Card.HistoryDetails | 
+        Add-Member -Name EntryDateTime -Type ScriptProperty -Value {
+            Get-Date $This.EntryDate
+        } -PassThru |
+        where eventtype -EQ Transitions |
+        Add-Member -Name TransitionFromColumn -Type ScriptProperty -Value {
+            $This.Details | 
+            Select-StringBetween -After "From '" -Before "' "
+        } -PassThru |
+        Add-Member -Name TransitionToColumn -Type ScriptProperty -Value {
+            $This.Details | 
+            Select-StringBetween -After "' to '" -Before "'"
         }
-    }
 
-    $_ | Add-Member -MemberType ScriptProperty -Name CycleTimeTimeSpan -Value {
-        if ($This.CompletedDate) {
-            $this.CompletedDate - $this.CreatedDate
-        } else {
-            $(get-date) - $this.CreatedDate
+        if ($Passthru) {
+            $Card
         }
     }
 }
@@ -163,16 +185,6 @@ function Get-TervisKanbanizeHelpDeskBoardIDs {
     $BoardIDs
 }
 
-Function Get-UnassignedTrackITs {
-    $QueryToGetUnassignedWorkOrders = @"
-Select Wo_num, task, request_fullname, request_email
-  from [TRACKIT9_DATA].[dbo].[vTASKS_BROWSE]
-  Where RESPONS IS Null AND
-  WorkOrderStatusName != 'Closed'
-"@
-    Invoke-SQL -dataSource sql -database TRACKIT9_DATA -sqlCommand $QueryToGetUnassignedWorkOrders
-}
-
 Function New-KanbanizeCardFromTrackITWorkOrder {
     param (
         [Parameter(Mandatory,ValueFromPipeline)]$WorkOrder,
@@ -181,42 +193,10 @@ Function New-KanbanizeCardFromTrackITWorkOrder {
     )
     process {
         $CardName = "" + $WorkOrder.Wo_Num + " -  " + $WorkOrder.Task
-        Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
         $Response = New-KanbanizeTask -BoardID $DestinationBoardID -Title $CardName -CustomFields @{"trackitid"=$WorkOrder.Wo_Num;"trackiturl"="http://trackit/TTHelpdesk/Application/Main?tabs=w$($WorkOrder.Wo_Num)"} -Column $DestinationColumn -Lane "Planned Work"
-    }
-}
-
-function Import-TrackItToKanbanize {
-    param (
-        $TrackITID
-    )
-    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess -HelpDeskTechnicianProcess -HelpDeskTriageProcess
-    
-$QueryToGetUnassignedWorkOrders = @"
-Select Wo_num, task
-  from [TRACKIT9_DATA].[dbo].[vTASKS_BROWSE]
-  Where RESPONS IS Null AND
-  WorkOrderStatusName != 'Closed' AND
-  Wo_num = $TrackITID
-"@
-    Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
-
-    $TriageProcessBoardID = 29
-    $TriageProcessStartingColumn = "Requested"
-
-    $UnassignedWorkOrders = Invoke-SQL -dataSource sql -database TRACKIT9_DATA -sqlCommand $QueryToGetUnassignedWorkOrders
-
-    foreach ($UnassignedWorkOrder in $UnassignedWorkOrders ) {
-        $CardName = "" + $UnassignedWorkOrder.Wo_Num + " - " + $UnassignedWorkOrder.Task    
-        try {
-            if($UnassignedWorkOrder.Wo_Num -in $($Cards.TrackITID)) {throw "There is already a card for this Track IT"}
-
-            $Response = New-KanbanizeTask -BoardID $TriageProcessBoardID -Title $CardName -CustomFields @{"trackitid"=$UnassignedWorkOrder.Wo_Num;"trackiturl"="http://trackit/TTHelpdesk/Application/Main?tabs=w$($UnassignedWorkOrder.Wo_Num)"} -Column $TriageProcessStartingColumn -Lane "Planned Work"
-            Edit-TrackITWorkOrder -WorkOrderNumber $UnassignedWorkOrder.Wo_Num -AssignedTechnician "Backlog" | Out-Null
-        } catch {            
-            $ErrorMessage = "Error running Import-TrackItToKanbanize: " + $CardName
-            Send-MailMessage -From HelpDeskBot@tervis.com -to HelpDeskDispatch@tervis.com -subject $ErrorMessage -SmtpServer cudaspam.tervis.com -Body $_.Exception|format-list -force
-        }
+        
+        Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
+        Edit-TervisTrackITWorkOrder -WorkOrderNumber $WorkOrder.Wo_Num -KanbanizeCardID $Response.id | Out-Null
     }
 }
 
@@ -394,8 +374,12 @@ Function Remove-KanbanizeCardsForClosedTrackITs {
     }
 }
 
-Function Import-BlaireWorkOrders {
-    $workorders = Get-TervisTrackITUnOfficialWorkOrders
+Function Import-TrackITWorkOrdersBasedOnAssignedTechnician {
+    param(
+        [Parameter(Mandatory)]$AssignedTechnician,
+        [Parameter(Mandatory)]$DestinationBoardID
+    )
+    $workorders = Get-TervisTrackITUnOfficialWorkOrder
     $hashTable = $workorders | group RESPONS -AsHashTable
-    $hashTable.'Blaire Flood' | New-KanbanizeCardFromTrackITWorkOrder -DestinationBoardID 72
+    $hashTable.$AssignedTechnician | New-KanbanizeCardFromTrackITWorkOrder -DestinationBoardID $DestinationBoardID
 }

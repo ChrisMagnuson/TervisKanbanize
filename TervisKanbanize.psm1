@@ -384,13 +384,18 @@ Function Import-TrackITWorkOrdersBasedOnAssignedTechnician {
     $hashTable.$AssignedTechnician | New-KanbanizeCardFromTrackITWorkOrder -DestinationBoardID $DestinationBoardID
 }
 
-Function Sync-KanbanizeTaskIDToTracKITWorkOrder {
+Function Get-TervisKanbnaizeAllTasksFromAllBoards {
     $KanbanizeProjedctsAndBoards = Get-KanbanizeProjectsAndBoards
     $BoardIDs = $KanbanizeProjedctsAndBoards.projects.boards.ID
 
     $Cards = $null
     $BoardIDs | % { $Cards += Get-KanbanizeAllTasks -BoardID $_ }
     $Cards | Mixin-TervisKanbanizeCardProperties
+    $Cards
+}
+
+Function Sync-KanbanizeTaskIDToTracKITWorkOrder {
+    $Cards = Get-TervisKanbnaizeAllTasksFromAllBoards
     $CardsWithTrackITIDs = $Cards | where trackitid
     
     $WorkOrders = Get-TervisTrackITUnOfficialWorkOrder

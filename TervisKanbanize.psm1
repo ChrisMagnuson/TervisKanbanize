@@ -383,3 +383,28 @@ Function Import-TrackITWorkOrdersBasedOnAssignedTechnician {
     $hashTable = $workorders | group RESPONS -AsHashTable
     $hashTable.$AssignedTechnician | New-KanbanizeCardFromTrackITWorkOrder -DestinationBoardID $DestinationBoardID
 }
+
+Function Sync-KanbanizeTaskIDToTracKITWorkOrder {
+    $KanbanizeProjedctsAndBoards = Get-KanbanizeProjectsAndBoards
+    $BoardIDs = $KanbanizeProjedctsAndBoards.projects.boards.ID
+
+    $Cards = $null
+    $BoardIDs | % { $Cards += Get-KanbanizeAllTasks -BoardID $_ }
+    $Cards | Mixin-TervisKanbanizeCardProperties
+    $CardsWithTrackITIDs = $Cards | where trackitid
+    
+    $WorkOrders = Get-TervisTrackITUnOfficialWorkOrder
+    $WorkOrdersWithOutKanbanizeIDs = $WorkOrders | where { -not $_.KanbanizeID }
+
+    $CardsWithTrackITIDsOpenInTrackIT = $CardsWithTrackITIDs | where trackitid -in $($WorkOrdersWithOutKanbanizeIDs.WOID)
+    
+    foreach ($Card in $CardsWithTrackITIDsOpenInTrackIT) {
+        Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
+        Edit-TervisTrackITWorkOrder -WorkOrderNumber $Card.TrackITID -KanbanizeCardID $Card.taskid
+    }
+
+}
+
+Function Remove-CardsNoLongerOpenInTrackIT {
+
+}

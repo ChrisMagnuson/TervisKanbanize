@@ -11,20 +11,41 @@ function Install-TervisKanbanize {
     Invoke-KanbanizeLogin -Permanent @PSBoundParameters
 }
 
-filter Mixin-TervisKanbanizeCardProperties {
-    $_ | Add-Member -MemberType ScriptProperty -Name TrackITID -Value { [int]$($this.customfields | Where name -eq "trackitid" | select -ExpandProperty value) }
-    $_ | Add-Member -MemberType ScriptProperty -Name TrackITIDFromTitle -Value { if ($this.Title -match " - ") { [int]$($this.Title -split " - ")[0] } }
-    $_ | Add-Member -MemberType ScriptProperty -Name ScheduledDate -Value { $($this.customfields | Where name -eq "Scheduled Date" | select -ExpandProperty value) }
-    $_ | Add-Member -MemberType ScriptProperty -Name PositionInt -Value { [int]$this.position }
-    $_ | Add-Member -MemberType ScriptProperty -Name PriorityInt -Value { 
-        switch($this.color) {
-            "#cc1a33" {1} #Red for priority 1
-            "#f37325" {2} #Orange for priority 2
-            "#77569b" {3} #Purple for priority 3
-            "#067db7" {4} #Blue for priority 4
+function Add-TervisKanbanizeCardProperties {
+    param (
+        [Parameter(Mandatory,ValueFromPipeline)]$Card,
+        [Switch]$PassThru
+    )
+    process {
+        $Card | Add-Member -MemberType ScriptProperty -Name TrackITID -Value { 
+            [int]$($this.customfields | Where name -eq "trackitid" | select -ExpandProperty value) 
+        } -PassThru | 
+        Add-Member -MemberType ScriptProperty -Name WorkInstruction -Value { 
+            $this.customfields | Where name -eq "Work Instruction" | select -ExpandProperty value
+        } -PassThru |        
+        Add-Member -MemberType ScriptProperty -Name TrackITIDFromTitle -Value { 
+            if ($this.Title -match " - ") { [int]$($this.Title -split " - ")[0] } 
+        } -PassThru |
+        Add-Member -MemberType ScriptProperty -Name ScheduledDate -Value { 
+            $($this.customfields | Where name -eq "Scheduled Date" | select -ExpandProperty value) 
+        } -PassThru | 
+        Add-Member -MemberType ScriptProperty -Name PositionInt -Value { 
+            [int]$this.position 
+        } -PassThru | 
+        Add-Member -MemberType ScriptProperty -Name PriorityInt -Value { 
+            switch($this.color) {
+                "#cc1a33" {1} #Red for priority 1
+                "#f37325" {2} #Orange for priority 2
+                "#77569b" {3} #Purple for priority 3
+                "#067db7" {4} #Blue for priority 4
+            }
+        } -PassThru | 
+        Add-Member -MemberType ScriptProperty -Name BoardID -Value { 
+            $this.BoardParent 
         }
+
+        if ($PassThru) { $Card }
     }
-    $_ | Add-Member -MemberType ScriptProperty -Name BoardID -Value { $this.BoardParent }
 }
 
 filter Mixin-TervisKanbanizeArchiveCardProperties {
@@ -61,8 +82,8 @@ function Get-KanbanizeTervisHelpDeskCards {
         where columnpath -NotIn "Done","Archive"
     }
 
-    $Cards | Mixin-TervisKanbanizeCardProperties
-    $Cards
+    $Cards | 
+    Add-TervisKanbanizeCardProperties -PassThru
 }
 
 function Get-TervisKanbanizeAllTasksFromArchive {
@@ -110,7 +131,7 @@ function Get-TervisKanbanizeAllTaskDetails {
 
 Function Add-TervisKanbanizeCardDetailsProperties {
     param(
-        [Parameter(ValueFromPipeline)]$Card,
+        [Parameter(Mandatory,ValueFromPipeline)]$Card,
         [Switch]$PassThru
     )
     process {
@@ -343,8 +364,10 @@ Function Get-WorkOrdersThatHaveKanbanizeCards {
 
     $Cards = $null
     $BoardIDs | % { $Cards += Get-KanbanizeAllTasks -BoardID $_ }
-    $Cards | Mixin-TervisKanbanizeCardProperties
-    $CardsWithTrackITIDs = $Cards | where trackitid
+    
+    $CardsWithTrackITIDs = $Cards | 
+    Add-TervisKanbanizeCardProperties -PassThru | 
+    where trackitid
     
     $WorkOrders = Get-TervisTrackITUnOfficialWorkOrder
 
@@ -358,8 +381,10 @@ Function Find-CardsClosedInTrackITButOpenInKanbanize {
 
     $Cards = $null
     $BoardIDs | % { $Cards += Get-KanbanizeAllTasks -BoardID $_ }
-    $Cards | Mixin-TervisKanbanizeCardProperties
-    $CardsWithTrackITIDs = $Cards | where trackitid
+
+    $CardsWithTrackITIDs = $Cards | 
+    Add-TervisKanbanizeCardProperties -PassThru | 
+    where trackitid
     
     $WorkOrders = Get-TervisTrackITUnOfficialWorkOrder
 
@@ -390,8 +415,7 @@ Function Get-TervisKanbnaizeAllTasksFromAllBoards {
 
     $Cards = $null
     $BoardIDs | % { $Cards += Get-KanbanizeAllTasks -BoardID $_ }
-    $Cards | Mixin-TervisKanbanizeCardProperties
-    $Cards
+    $Cards | Add-TervisKanbanizeCardProperties -PassThru
 }
 
 Function Sync-KanbanizeTaskIDToTracKITWorkOrder {
@@ -412,4 +436,22 @@ Function Sync-KanbanizeTaskIDToTracKITWorkOrder {
 
 Function Remove-CardsNoLongerOpenInTrackIT {
 
+}
+
+Function Get-WorkInstructionURI {
+    param (
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]$Type,
+        $Cards = $(Get-KanbanizeAllTasks -BoardID 33 | Add-TervisKanbanizeCardProperties -PassThru)
+    )
+    $Cards | 
+    where Type -eq $Type | 
+    select -ExpandProperty WorkInstruction
+}
+
+Function Get-TervisKanbanizePowerShellTypeMetaData {
+    param (
+        $Cards = $(Get-KanbanizeAllTasks -BoardID 33 | Add-TervisKanbanizeCardProperties -PassThru)
+    )
+    $Cards | 
+    where BoardID -EQ 33
 }

@@ -224,7 +224,7 @@ Function New-KanbanizeCardFromTrackITWorkOrder {
 function Get-ApprovedWorkInstructionsInEvernote {
     $ProjectsAndBoards = Get-KanbanizeProjectsAndBoards
     $Project = $projectsAndBoards.projects | where name -eq "Technical Services"
-    $Board = $Project.boards | where name -EQ "Help Desk Standard Requests"
+    $Board = $Project.boards | where name -EQ "Help Desk Service Request Types"
     $BoardSettings = Get-KanbanizeFullBoardSettings -BoardID $Board.id
     $Tasks = Get-KanbanizeAllTasks -BoardID $Board.id
 
@@ -248,9 +248,9 @@ function Find-CardsOnTechnicianBoardWithWorkInstructions {
 }
 
 function Find-MostImportantWorkInstructionsToCreate {
-    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskTechnicianProcess |
+    $Cards = Get-KanbanizeTervisHelpDeskCards -HelpDeskProcess |
     where columnpath -EQ "Requested.Ready to be worked on" |
-    where type -NotIn $ApprovedWorkInstructionsInEvernote
+    where type -NotIn (Get-ApprovedWorkInstructionsInEvernote)
     
     $Cards|group type| sort count -Descending | select count, name
 }

@@ -42,6 +42,9 @@ function Add-TervisKanbanizeCardProperties {
         } -PassThru | 
         Add-Member -MemberType ScriptProperty -Name BoardID -Value { 
             $this.BoardParent 
+        } -PassThru | 
+        Add-Member -MemberType ScriptProperty -Name CreatedAtDateTime -Value { 
+            Get-Date $this.CreatedAt 
         }
 
         if ($PassThru) { $Card }
@@ -454,4 +457,22 @@ Function Get-TervisKanbanizePowerShellTypeMetaData {
     )
     $Cards | 
     where BoardID -EQ 33
+}
+
+Function Invoke-SortCardsOnHelpDeskProcess {
+    $Cards = Get-TervisKanbnaizeAllTasksFromAllBoards
+
+    $CardsThatNeedToBeSorted = $Cards |
+    where boardid -eq 32 |
+    where columnpath -Match requested |
+    where lanename -eq "Planned Work" |
+    sort positionint
+
+    $SortedCards = $CardsThatNeedToBeSorted |
+    sort priorityint, trackitid
+
+
+    foreach ($Card in $SortedCards) {
+        Move-KanbanizeTask -BoardID 32 -TaskID $Card.taskid -Column "Requested.Ready to be worked on" -Lane "Planned Work" -Position ($SortedCards.IndexOf($Card))
+    }
 }

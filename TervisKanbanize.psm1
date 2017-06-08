@@ -476,3 +476,89 @@ Function Invoke-SortCardsOnHelpDeskProcess {
         Move-KanbanizeTask -BoardID 32 -TaskID $Card.taskid -Column "Requested.Ready to be worked on" -Lane "Planned Work" -Position ($SortedCards.IndexOf($Card))
     }
 }
+
+Function Measure-HelpDeskKanbanizeBoardHealth {
+    $KanbanizeBoards = Get-KanbanizeProjectsAndBoards
+    $HelpDeskBoardID = $KanbanizeBoards.projects.boards | where name -EQ "Help Desk Process" | select -ExpandProperty ID
+
+    $Cards = Get-KanbanizeAllTasks -BoardID $HelpDeskBoardID
+    $Types = Get-KanbanizeFullBoardSettings -BoardID $HelpDeskBoardID | select -ExpandProperty types
+
+    $Cards | Add-Member -MemberType ScriptProperty -Name PositionInt -Value { [int]$this.position }
+
+    foreach ($Card in $Cards) {
+        $Card.CustomFields | % { 
+            $Card | Add-Member -MemberType NoteProperty -Name $_.Name -Value $_.value
+        }
+    }
+
+    $CardsInScheduledDateColumn = $Cards |
+        where columnpath -eq "In Progress.Waiting for Scheduled Date"
+
+    $CardsWithScheduledDate = $CardsInScheduledDateColumn | where {$_."Scheduled Date"}
+
+    $PercentageOfCardsInTheWaitingForScheduledDateColumnWithScheduledDateSpecififed = [int](($CardsWithScheduledDate.Count / $CardsInScheduledDateColumn.Count) * 100)
+    $MetricMessage = "$PercentageOfCardsInTheWaitingForScheduledDateColumnWithScheduledDateSpecififed% of cards in the Waiting for scheduled date column that have a scheduled date set"
+    
+    $MetricColor = switch ($PercentageOfCardsInTheWaitingForScheduledDateColumnWithScheduledDateSpecififed) {
+        {$_ -in $(0..80)} {"Red"}
+        {$_ -in $(81..99)} {"Yellow"}
+        {$_ -eq 100} {"Green"}
+    }
+
+    Write-Host -ForegroundColor $MetricColor $MetricMessage
+    
+    $CardsWhereTrackITIDNotSet = $Cards | where TrackITID -LT 1
+    $MetricValue = $CardsWhereTrackITIDNotSet.count
+    $MetricColor = switch ($MetricValue) {
+        {$_ -gt 0} {"Red"}
+        {$_ -eq 0} {"Green"}
+        {$_ -eq $Null} {"Green"; $MetricValue = 0}
+    }
+
+    Write-Host -ForegroundColor $MetricColor "$MetricValue cards don't have a TrackITID set"
+
+    #Metric: What is the date of the oldest most recent comment on a card
+    $CardsInWaitingForUserFeedback = $Cards |
+        where columnpath -eq "In Progress.Waiting for user feedback" |
+        where lanename -EQ "Unplanned Work"
+         
+    $CardsInWaitingForUserFeedbackDetails = $CardsInWaitingForUserFeedback | % {
+        Get-KanbanizeTaskDetails -BoardID $HelpDeskBoardID -TaskID $_.taskid -History yes -Event comment
+    }
+    
+    $CardsInWaitingForUserFeedbackDetails.historydetails | Add-Member -MemberType ScriptProperty -Name entrydateDate -Value { get-date $this.entrydate }
+
+    $DateOfTheOldestLastCommentOnAllCardsInWaitingForUserFeedback = $CardsInWaitingForUserFeedbackDetails | % {
+        $_.historydetails.entrydatedate | sort -Descending | select -First 1
+    } | sort | select -first 1
+
+    $NumberOfDays = $($(Get-Date) - $DateOfTheOldestLastCommentOnAllCardsInWaitingForUserFeedback | select -ExpandProperty days)
+    
+    $MetricColor = switch ($NumberOfDays) {
+        { $_ -gt 7 } {"Red"}
+        { $_ -le 7 -and $_ -gt 3} {"Yellow"}
+        default  {"Green"}
+    }
+
+    Write-Host -ForegroundColor $MetricColor "$NumberOfDays is the longest number of days since we reached out to a customer on a card we are waiting for user feedback in unplanned work"
+
+}
+
+Function Write-PercentageMetric {
+    param (
+        $MetricValuesThatMeanTerrible,
+        $MetricValuesThatMeanBad,
+        $MetricValuesThatMeanGood,
+        $MetricValue,
+        $MetricMessage
+    )
+
+    $MetricColor = switch ($MetricValue) {
+        {$_ -in $MetricValuesThatMeanTerrible} {"Red"}
+        {$_ -in $MetricValuesThatMeanBad} {"Yellow"}
+        {$_ -in $MetricValuesThatMeanGood} {"Green"}
+    }
+
+    Write-Host -ForegroundColor $MetricColor $MetricMessage
+}

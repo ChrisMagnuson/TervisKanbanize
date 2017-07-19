@@ -17,22 +17,17 @@ function Add-TervisKanbanizeCardProperties {
         [Switch]$PassThru
     )
     process {
-        $Card | Add-Member -MemberType ScriptProperty -Name TrackITID -Value { 
-            [int]$($this.customfields | Where name -eq "trackitid" | select -ExpandProperty value) 
-        } -PassThru | 
-        Add-Member -MemberType ScriptProperty -Name WorkInstruction -Value { 
-            $this.customfields | Where name -eq "Work Instruction" | select -ExpandProperty value
-        } -PassThru |        
-        Add-Member -MemberType ScriptProperty -Name TrackITIDFromTitle -Value { 
+        $Card |        
+        Add-Member -MemberType ScriptProperty -Name TrackITIDFromTitle -Force -Value { 
             if ($this.Title -match " - ") { [int]$($this.Title -split " - ")[0] } 
         } -PassThru |
-        Add-Member -MemberType ScriptProperty -Name ScheduledDate -Value { 
-            $($this.customfields | Where name -eq "Scheduled Date" | select -ExpandProperty value) 
+        Add-Member -MemberType ScriptProperty -Name ScheduledDate -Force -Value { 
+            $this."Scheduled Date"
         } -PassThru | 
-        Add-Member -MemberType ScriptProperty -Name PositionInt -Value { 
+        Add-Member -MemberType ScriptProperty -Name PositionInt -Force -Value { 
             [int]$this.position 
         } -PassThru | 
-        Add-Member -MemberType ScriptProperty -Name PriorityInt -Value { 
+        Add-Member -MemberType ScriptProperty -Name PriorityInt -Force -Value { 
             switch($this.color) {
                 "#cc1a33" {1} #Red for priority 1
                 "#f37325" {2} #Orange for priority 2
@@ -40,14 +35,39 @@ function Add-TervisKanbanizeCardProperties {
                 "#067db7" {4} #Blue for priority 4
             }
         } -PassThru | 
-        Add-Member -MemberType ScriptProperty -Name BoardID -Value { 
+        Add-Member -MemberType ScriptProperty -Name BoardID -Force -Value { 
             $this.BoardParent 
         } -PassThru | 
-        Add-Member -MemberType ScriptProperty -Name CreatedAtDateTime -Value { 
+        Add-Member -MemberType ScriptProperty -Name CreatedAtDateTime -Force -Value { 
             Get-Date $this.CreatedAt 
+        }
+        
+        foreach ($CustomField in $Card.CustomFields) {
+            $Card | Add-Member -MemberType NoteProperty -Name $CustomField.Name -Force -Value (
+                $CustomField | Get-CustomFieldValue
+            )
         }
 
         if ($PassThru) { $Card }
+    }
+}
+
+$CustomFieldTypeMapping = @{
+    number = "int"
+    date = "DateTime"  
+}
+
+function Get-CustomFieldValue {
+    param (
+        [Parameter(Mandatory,ValueFromPipeline)]$CustomField
+    )
+    process {
+        $PowerShellType = $CustomFieldTypeMapping[$CustomField.type]
+        if ($PowerShellType) {
+            Invoke-Expression "[$PowerShellType]`$CustomField.Value"
+        } else {
+            $CustomField.Value
+        }        
     }
 }
 

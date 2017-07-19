@@ -301,7 +301,7 @@ function Get-TervisWorkOrderDetails {
     param(
         $Card
     )
-    $Card | Select TaskID, Title, Type, deadline, PriorityInt| FL
+    $Card | Select TaskID, Title, Type, deadline, PriorityInt, Reporter| FL
     
     if ($Card.TrackITID) {
         $WorkOrder = Get-TervisTrackITWorkOrder -WorkOrderNumber $Card.TrackITID    

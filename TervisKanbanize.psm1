@@ -468,7 +468,7 @@ Function Get-WorkInstructionURI {
     )
     $Cards | 
     where Type -eq $Type | 
-    select -ExpandProperty WorkInstruction
+    select -ExpandProperty "Work Instruction"
 }
 
 Function Get-TervisKanbanizePowerShellTypeMetaData {
